@@ -4,7 +4,7 @@
 #define MyAppName "LosslessCutter"
 #define MyAppVersion "1.0"
 #define MyAppPublisher "dieroboter"
-#define MyAppURL "https://github.com/dieroboter/lossless-cutter"
+#define MyAppURL "https://github.com/dieroboter/losslesscutter"
 #define MyAppExeName "LosslessCutter.exe"
 
 [Setup]
