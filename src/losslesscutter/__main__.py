@@ -11,6 +11,7 @@ def main() -> int:
     window = MainWindow()
     app.setWindowIcon(window.windowIcon())
     window.showMaximized()
+    window.start_update_check()
     if len(sys.argv) > 1:
         window.load_file(sys.argv[1])
     return app.exec()

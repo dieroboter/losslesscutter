@@ -22,6 +22,12 @@ Windows 10/11, 64-bit.
 The build is unsigned, so Windows SmartScreen may warn on first run:
 choose "More info" -> "Run anyway".
 
+## Updates
+
+On startup the app checks this repository's latest release and, if a
+newer version exists, shows an "Update available" link in the window.
+It never downloads or installs anything by itself.
+
 ## Supported formats
 
 H.264, HEVC (H.265), VP9, AV1, MPEG-2, and MPEG-4 ASP video, in the usual
@@ -47,6 +53,10 @@ their quality.
 Keys: Space = play/pause, I = set start, O = set end, Left/Right = one
 frame, Shift+Left/Right = 10 seconds. The transport bar also has
 frame-step, GOP-step, and 10-second jump buttons.
+
+The Go to box next to the time display jumps straight to a frame
+number or a timestamp: type or paste one (for example 1250 or 1:23.5)
+and press Enter.
 
 The preview is silent (no audio playback while you edit), but exports
 keep all audio tracks untouched.

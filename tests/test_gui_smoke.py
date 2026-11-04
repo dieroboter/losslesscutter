@@ -18,7 +18,8 @@ from PySide6.QtWidgets import QApplication
 
 from losslesscutter.export_worker import ExportWorker
 from losslesscutter.main_window import MainWindow
-from losslesscutter.segments import describe_cut, positive_segments
+from losslesscutter.segments import describe_cut, parse_goto, positive_segments
+from losslesscutter.update_check import is_newer, parse_version
 from smartcut.media_utils import VideoExportMode, VideoExportQuality
 from smartcut.video_cutter import VideoSettings
 
@@ -49,6 +50,41 @@ def main():
     )
     print("describe_cut wording OK")
 
+    # Go-to parsing: bare integers are frames, "." / ":" means a timestamp
+    from fractions import Fraction
+    fps, count = Fraction(24), 144
+    assert parse_goto("48", fps, count) == 48
+    assert parse_goto("0", fps, count) == 0
+    assert parse_goto("143", fps, count) == 143
+    assert parse_goto("144", fps, count) == 143  # clamped to last frame
+    assert parse_goto("99999", fps, count) == 143
+    assert parse_goto(" 12 ", fps, count) == 12
+    assert parse_goto("-3", fps, count) == 0  # clamped to first frame
+    assert parse_goto("2.0", fps, count) == 48  # 2 seconds at 24 fps
+    assert parse_goto("0:03", fps, count) == 72
+    assert parse_goto("1:00", fps, count) == 143  # 1440 frames, clamped
+    assert parse_goto("0:00:02.5", fps, count) == 60
+    for bad in ("", "abc", "1:2:3:4", "12:", "1::2", "nan", "inf", "-1:30"):
+        assert parse_goto(bad, fps, count) is None, f"accepted {bad!r}"
+    print("parse_goto OK")
+
+    # Update-check version logic
+    assert parse_version("v1.2.3") == (1, 2, 3)
+    assert parse_version("1.0") == (1, 0)
+    assert parse_version("V2") == (2,)
+    assert parse_version("dev") is None
+    assert parse_version("") is None
+    assert parse_version("v") is None
+    assert is_newer("1.1", "1.0")
+    assert is_newer("v1.1", "1.0")
+    assert is_newer("1.0.1", "1.0")
+    assert is_newer("2", "1.9")
+    assert not is_newer("1.0", "1.0")
+    assert not is_newer("1.0.0", "1.0")
+    assert not is_newer("0.9.9", "1.0")
+    assert not is_newer("junk", "1.0")
+    print("update version logic OK")
+
     app = QApplication(sys.argv)
     win = MainWindow()
     win.show()
@@ -64,6 +100,17 @@ def main():
     assert win.status_label.wordWrap() and win.cut_label.wordWrap()
     print("no-stretch label policies OK")
 
+    # Update notice: only a strictly newer version fills the label
+    assert win.update_label.text() == ""
+    win._on_update_checked(None)
+    win._on_update_checked(("0.9", "https://example.invalid/rel"))
+    assert win.update_label.text() == "", "notice shown for old version"
+    win._on_update_checked(("9.9", "https://example.invalid/rel"))
+    assert "Update available" in win.update_label.text(), win.update_label.text()
+    assert "9.9" in win.update_label.text()
+    win.update_label.setText("")
+    print("update notice OK")
+
     win.load_file(str(SRC))
     assert win.info is not None, "file did not load"
     assert win.info.frame_count == 144, f"frame count {win.info.frame_count}"
@@ -78,6 +125,26 @@ def main():
     assert win.current_frame == 24, f"next GOP landed on {win.current_frame}"
     win.step_gop(-1)
     assert win.current_frame == 0
+
+    # Go to: frame number, timestamp, clamp, and a rejected entry
+    win.goto_edit.setText("48")
+    win._on_goto()
+    assert win.current_frame == 48, f"goto frame landed on {win.current_frame}"
+    win.goto_edit.setText("0:03")
+    win._on_goto()
+    assert win.current_frame == 72, f"goto time landed on {win.current_frame}"
+    win.goto_edit.setText("2.5")
+    win._on_goto()
+    assert win.current_frame == 60, f"goto seconds landed on {win.current_frame}"
+    win.goto_edit.setText("99999")
+    win._on_goto()
+    assert win.current_frame == 143, f"goto clamp landed on {win.current_frame}"
+    win.goto_edit.setText("nonsense")
+    win._on_goto()
+    assert win.current_frame == 143, "rejected goto moved the playhead"
+    assert "Could not understand" in win.status_label.text(), win.status_label.text()
+    win.show_frame(0)
+    print("go to OK")
 
     # Marks + selection frames 26..53
     win.show_frame(26)

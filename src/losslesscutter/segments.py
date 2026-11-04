@@ -1,6 +1,7 @@
 """Selection bookkeeping: frame ranges -> smartcut positive segments."""
 from __future__ import annotations
 
+import math
 from fractions import Fraction
 
 from smartcut.media_container import MediaContainer
@@ -120,3 +121,40 @@ def describe_cut(frame_count: int, selections: list[tuple[int, int]], mode: str)
     else:
         joined = ", ".join(parts[:-1]) + ", and " + parts[-1]
     return f"Cutting {joined}."
+
+
+def parse_goto(text: str, fps: Fraction, frame_count: int) -> int | None:
+    """Parse a Go-to entry into a target frame index.
+
+    A bare integer is a frame number ("1250"). Anything with a decimal
+    point or colons is a timestamp: seconds ("83.5"), minutes:seconds
+    ("1:23.5"), or hours:minutes:seconds ("0:01:23.250"); the target is
+    the frame at that time at the file's frame rate. Returns the target
+    clamped to [0, frame_count - 1], or None if the text is neither a
+    frame number nor a timestamp.
+    """
+    s = text.strip()
+    if not s or frame_count <= 0:
+        return None
+    if s.lstrip("+-").isdigit():
+        try:
+            frame = int(s)
+        except ValueError:
+            return None
+        return max(0, min(frame, frame_count - 1))
+    parts = s.split(":")
+    if len(parts) > 3:
+        return None
+    try:
+        if len(parts) == 1:
+            seconds = float(parts[0])
+        elif len(parts) == 2:
+            seconds = int(parts[0]) * 60 + float(parts[1])
+        else:
+            seconds = int(parts[0]) * 3600 + int(parts[1]) * 60 + float(parts[2])
+    except ValueError:
+        return None
+    if not math.isfinite(seconds) or seconds < 0:
+        return None
+    frame = int(round(seconds * float(fps)))
+    return max(0, min(frame, frame_count - 1))

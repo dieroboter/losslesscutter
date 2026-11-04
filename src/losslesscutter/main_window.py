@@ -27,7 +27,10 @@ from . import __version__
 from .export_worker import ExportWorker
 from .player import PreviewPlayer
 from .probe import MediaInfo, probe_media
-from .segments import describe_cut, frame_end_time, frame_time, positive_segments
+from .segments import (
+    describe_cut, frame_end_time, frame_time, parse_goto, positive_segments,
+)
+from .update_check import UpdateChecker, is_newer
 
 MEDIA_FILTER = (
     "Video files (*.mp4 *.mkv *.mov *.avi *.mpg *.mpeg *.m2ts *.mts *.ts "
@@ -74,6 +77,8 @@ class MainWindow(QMainWindow):
         self._playing = False
         self._thread: QThread | None = None
         self._worker: ExportWorker | None = None
+        self._update_thread: QThread | None = None
+        self._update_checker: UpdateChecker | None = None
 
         self._build_ui()
         self._build_shortcuts()
@@ -99,6 +104,11 @@ class MainWindow(QMainWindow):
         self.info_label.setSizePolicy(
             QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         top.addWidget(self.info_label)
+        # Filled in (as a link to the release page) only when the startup
+        # update check finds a newer version; empty otherwise.
+        self.update_label = QLabel("")
+        self.update_label.setOpenExternalLinks(True)
+        top.addWidget(self.update_label)
         root.addLayout(top)
 
         self.preview = QLabel("Drop a video file here, or click Open...")
@@ -133,6 +143,16 @@ class MainWindow(QMainWindow):
         self.time_label = QLabel("00:00:00.000   Frame 0 / 0")
         self.time_label.setMinimumWidth(250)
         transport.addWidget(self.time_label)
+        transport.addWidget(QLabel("Go to:"))
+        self.goto_edit = QLineEdit()
+        self.goto_edit.setPlaceholderText("frame # or 1:23.5")
+        self.goto_edit.setToolTip(
+            "Jump to a frame number (1250) or a timestamp (1:23.5). "
+            "Type or paste, then press Enter."
+        )
+        self.goto_edit.setFixedWidth(120)
+        self.goto_edit.returnPressed.connect(self._on_goto)
+        transport.addWidget(self.goto_edit)
         root.addLayout(transport)
 
         marks = QHBoxLayout()
@@ -240,6 +260,7 @@ class MainWindow(QMainWindow):
     def _set_controls_enabled(self, enabled: bool) -> None:
         for w in (self.slider, self.prev_gop_btn, self.back_btn, self.prev_frame_btn,
                   self.play_btn, self.next_frame_btn, self.fwd_btn, self.next_gop_btn,
+                  self.goto_edit,
                   self.set_in_btn, self.set_out_btn, self.add_sel_btn, self.remove_sel_btn,
                   self.clear_sel_btn, self.mode_combo, self.speed_combo,
                   self.out_edit, self.browse_btn, self.save_btn):
@@ -341,6 +362,43 @@ class MainWindow(QMainWindow):
     def _on_slider(self, value: int) -> None:
         self._stop_play()
         self.show_frame(value)
+
+    def _on_goto(self) -> None:
+        if self.info is None:
+            return
+        target = parse_goto(
+            self.goto_edit.text(), self.info.fps, self.info.frame_count)
+        if target is None:
+            self.status_label.setText(
+                "Could not understand the Go to entry - enter a frame number "
+                "or a timestamp like 1:23.5.")
+            self.goto_edit.selectAll()
+            return
+        self._stop_play()
+        self.show_frame(target)
+
+    # -------------------------------------------------------- update check
+    def start_update_check(self) -> None:
+        """Ask GitHub for the latest release, once, in the background.
+        Called by the app entry point, not the constructor, so tests that
+        build the window directly never trigger a network call."""
+        if self._update_thread is not None:
+            return
+        self._update_checker = UpdateChecker()
+        self._update_thread = QThread(self)
+        self._update_checker.moveToThread(self._update_thread)
+        self._update_thread.started.connect(self._update_checker.run)
+        self._update_checker.finished.connect(self._on_update_checked)
+        self._update_checker.finished.connect(self._update_thread.quit)
+        self._update_thread.start()
+
+    def _on_update_checked(self, result) -> None:
+        if not result:
+            return
+        version, url = result
+        if is_newer(version, __version__):
+            self.update_label.setText(
+                f'<a href="{url}">Update available: LosslessCutter {version}</a>')
 
     def step_frames(self, delta: int) -> None:
         self._stop_play()
