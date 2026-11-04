@@ -2,7 +2,7 @@
 ; Wraps the portable build in dist\LosslessCutter (see build_portable.py).
 
 #define MyAppName "LosslessCutter"
-#define MyAppVersion "1.0"
+#define MyAppVersion "1.1"
 #define MyAppPublisher "dieroboter"
 #define MyAppURL "https://github.com/dieroboter/losslesscutter"
 #define MyAppExeName "LosslessCutter.exe"
