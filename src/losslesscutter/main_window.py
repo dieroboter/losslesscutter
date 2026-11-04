@@ -9,9 +9,10 @@ export fails with an explanation instead of re-encoding the whole file.
 from __future__ import annotations
 
 import os
+from bisect import bisect_right
 from fractions import Fraction
 
-from PySide6.QtCore import QEvent, Qt, QThread, QTimer
+from PySide6.QtCore import QEvent, Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QIcon, QKeySequence, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QApplication, QComboBox, QFileDialog, QHBoxLayout, QLabel, QLineEdit,
@@ -24,6 +25,7 @@ from smartcut.smart_cut import make_adjusted_segment_times, make_cut_segments
 from smartcut.video_cutter import VideoSettings
 
 from . import __version__
+from .audio_player import QT_AUDIO_AVAILABLE, AudioPlayer
 from .export_worker import ExportWorker
 from .player import PreviewPlayer
 from .probe import MediaInfo, probe_media
@@ -58,6 +60,12 @@ def format_timecode(t: Fraction) -> str:
 
 
 class MainWindow(QMainWindow):
+    # Commands for the AudioPlayer on its own thread.
+    _audio_play_cmd = Signal(str, float)
+    _audio_stop_cmd = Signal()
+    _audio_volume_cmd = Signal(float)
+    _audio_mute_cmd = Signal(bool)
+
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle(f"LosslessCutter {__version__}")
@@ -79,6 +87,25 @@ class MainWindow(QMainWindow):
         self._worker: ExportWorker | None = None
         self._update_thread: QThread | None = None
         self._update_checker: UpdateChecker | None = None
+        self._frame_times: list[float] = []
+        self._audio_mode = False   # current playback is audio-clocked
+        self._audio: AudioPlayer | None = None
+        self._audio_thread: QThread | None = None
+        if QT_AUDIO_AVAILABLE:
+            self._audio = AudioPlayer()
+            self._audio_thread = QThread(self)
+            self._audio.moveToThread(self._audio_thread)
+            self._audio_play_cmd.connect(self._audio.play)
+            self._audio_stop_cmd.connect(self._audio.stop)
+            self._audio_volume_cmd.connect(self._audio.set_volume)
+            self._audio_mute_cmd.connect(self._audio.set_muted)
+            self._audio.position_changed.connect(self._on_audio_position)
+            self._audio.finished.connect(self._on_audio_finished)
+            self._audio.failed.connect(self._on_audio_failed)
+            self._audio_thread.start()
+            app = QApplication.instance()
+            if app is not None:
+                app.aboutToQuit.connect(self._shutdown_audio)
 
         self._build_ui()
         self.goto_edit.installEventFilter(self)
@@ -154,6 +181,19 @@ class MainWindow(QMainWindow):
         self.goto_edit.setFixedWidth(120)
         self.goto_edit.returnPressed.connect(self._on_goto)
         transport.addWidget(self.goto_edit)
+        self.mute_btn = QPushButton("Mute")
+        self.mute_btn.setCheckable(True)
+        self.mute_btn.setToolTip("Mute the preview audio")
+        self.mute_btn.toggled.connect(self._on_mute_toggled)
+        transport.addWidget(self.mute_btn)
+        self.volume_slider = QSlider(Qt.Orientation.Horizontal)
+        self.volume_slider.setRange(0, 100)
+        self.volume_slider.setValue(100)
+        self.volume_slider.setFixedWidth(80)
+        self.volume_slider.setToolTip("Preview volume")
+        self.volume_slider.valueChanged.connect(
+            lambda v: self._audio_volume_cmd.emit(v / 100.0))
+        transport.addWidget(self.volume_slider)
         root.addLayout(transport)
 
         marks = QHBoxLayout()
@@ -261,7 +301,7 @@ class MainWindow(QMainWindow):
     def _set_controls_enabled(self, enabled: bool) -> None:
         for w in (self.slider, self.prev_gop_btn, self.back_btn, self.prev_frame_btn,
                   self.play_btn, self.next_frame_btn, self.fwd_btn, self.next_gop_btn,
-                  self.goto_edit,
+                  self.goto_edit, self.mute_btn, self.volume_slider,
                   self.set_in_btn, self.set_out_btn, self.add_sel_btn, self.remove_sel_btn,
                   self.clear_sel_btn, self.mode_combo, self.speed_combo,
                   self.out_edit, self.browse_btn, self.save_btn):
@@ -287,6 +327,7 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Cannot open file", str(exc))
             self.status_label.setText("Ready")
             return
+        self._stop_play()
         if self.mc is not None:
             try:
                 self.mc.close()
@@ -294,6 +335,8 @@ class MainWindow(QMainWindow):
                 pass
         self.player.close()
         self.info, self.mc = info, mc
+        self._frame_times = [
+            float(frame_time(mc, i)) for i in range(info.frame_count)]
         self.player.open(path, mc)
         self.current_frame = 0
         self.mark_in = None
@@ -312,10 +355,17 @@ class MainWindow(QMainWindow):
         self.out_edit.setText(stem + "_cut" + ext)
         self._update_marks_label()
         self._set_controls_enabled(True)
+        self.mute_btn.setEnabled(info.has_audio)
+        self.volume_slider.setEnabled(info.has_audio)
         self.show_frame(0)
+        note = ""
+        if info.has_audio and not QT_AUDIO_AVAILABLE:
+            note = (" Audio preview is off: PySide6-Addons is not "
+                    "installed, so the preview stays silent.")
         self.status_label.setText(
             "Loaded. Mark a start and end, add selections, then Save. "
             "Only the small bits at cut points are re-encoded; everything else is copied bit-identical."
+            + note
         )
 
     # ---------------------------------------------------------- drag & drop
@@ -443,12 +493,63 @@ class MainWindow(QMainWindow):
         else:
             self._playing = True
             self.play_btn.setText("Pause")
-            self._play_tick()
+            if self.info.has_audio and self._audio is not None:
+                # Audio-clocked: the player's position signals drive
+                # show_frame via _on_audio_position. If it reports a
+                # failure, _on_audio_failed falls back to the timer.
+                self._audio_mode = True
+                self._audio_play_cmd.emit(
+                    self.info.path,
+                    float(frame_time(self.mc, self.current_frame)))
+            else:
+                self._audio_mode = False
+                self._play_tick()
 
     def _stop_play(self) -> None:
         self._playing = False
+        self._audio_mode = False
+        self._audio_stop_cmd.emit()
         self._play_timer.stop()
         self.play_btn.setText("Play")
+
+    # ------------------------------------------------------------ audio in
+    def _on_audio_position(self, seconds: float) -> None:
+        if not self._playing or not self._audio_mode or self.info is None:
+            return
+        if seconds >= float(self.info.duration):
+            self._stop_play()
+            return
+        idx = bisect_right(self._frame_times, seconds) - 1
+        idx = max(0, min(idx, self.info.frame_count - 1))
+        if idx != self.current_frame:
+            self.show_frame(idx)
+
+    def _on_audio_finished(self) -> None:
+        if self._playing:
+            self._stop_play()
+
+    def _on_audio_failed(self, message: str) -> None:
+        if not self._playing or not self._audio_mode:
+            return  # stale failure from a playback already stopped
+        # No sound available: keep playing, silently, on the frame timer.
+        self._audio_mode = False
+        self.status_label.setText(message + " Preview continues silently.")
+        self._play_tick()
+
+    def _on_mute_toggled(self, muted: bool) -> None:
+        self.mute_btn.setText("Unmute" if muted else "Mute")
+        self._audio_mute_cmd.emit(muted)
+
+    def _shutdown_audio(self) -> None:
+        self._audio_stop_cmd.emit()
+        if self._audio_thread is not None and self._audio_thread.isRunning():
+            self._audio_thread.quit()
+            self._audio_thread.wait(2000)
+
+    def closeEvent(self, event) -> None:
+        self._stop_play()
+        self._shutdown_audio()
+        super().closeEvent(event)
 
     def _play_tick(self) -> None:
         if not self._playing or self.info is None:

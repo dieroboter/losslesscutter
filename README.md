@@ -58,8 +58,10 @@ The Go to box next to the time display jumps straight to a frame
 number or a timestamp: type or paste one (for example 1250 or 1:23.5)
 and press Enter.
 
-The preview is silent (no audio playback while you edit), but exports
-keep all audio tracks untouched.
+During playback the preview plays the file's first audio track, in
+sync with the picture; the Mute button and volume slider sit next to
+the Go to box. Stepping frame by frame is silent - sound is for
+playback. Exports keep all audio tracks untouched.
 
 Opening a file indexes every frame in it, which can take a few seconds
 for long files. That index is what makes the frame and GOP stepping
@@ -75,7 +77,7 @@ git clone https://github.com/dieroboter/losslesscutter
 cd losslesscutter
 py -3.12 -m venv .venv
 .venv\Scripts\activate
-pip install av==16.0.1 PySide6-Essentials numpy
+pip install av==16.0.1 PySide6-Essentials PySide6-Addons numpy
 python tools\make_icon.py
 $env:PYTHONPATH = "src"
 python -m losslesscutter

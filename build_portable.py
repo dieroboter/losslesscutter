@@ -5,7 +5,7 @@ Layout:
     LosslessCutter.exe     (compiled launcher, see launcher.c)
     pythonw.exe, python312.dll, python312.zip, ... (CPython 3.12.7 embeddable)
     python312._pth         (paths: Lib/site-packages, app)
-    Lib/site-packages/     (PyAV 16.0.1, PySide6-Essentials, shiboken6, numpy - win_amd64 wheels)
+    Lib/site-packages/     (PyAV 16.0.1, PySide6-Essentials, PySide6-Addons, shiboken6, numpy - win_amd64 wheels)
     app/smartcut/          (engine fork, MIT)
     app/losslesscutter/    (GUI)
     README.md, LICENSE files

@@ -221,6 +221,7 @@ def main():
         f"drop did not load {other}: {win.info and win.info.path}"
     assert win.cut_label.text() == "", "cut label not reset after drop"
     print("drag & drop load OK:", win.info.path)
+    win.close()
     print("GUI SMOKE TEST PASSED")
     return 0
 
