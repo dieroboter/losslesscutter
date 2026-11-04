@@ -4,7 +4,7 @@ import struct
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QPointF, QRectF, Qt
+from PySide6.QtCore import QBuffer, QIODevice, QPointF, QRectF, Qt
 from PySide6.QtGui import (
     QColor, QImage, QLinearGradient, QPainter, QPainterPath, QPen, QPolygonF,
 )
@@ -85,14 +85,19 @@ def write_ico(pngs: list[tuple[int, bytes]], path: Path) -> None:
     path.write_bytes(header + entries + data)
 
 
+def png_bytes(img: QImage) -> bytes:
+    buf = QBuffer()
+    buf.open(QIODevice.OpenModeFlag.WriteOnly)
+    img.save(buf, "PNG")
+    return bytes(buf.data())
+
+
 def main() -> int:
     app = QApplication(sys.argv)
     pngs = []
     for size in SIZES:
         img = paint(size)
-        out = Path(f"/tmp/icon-{size}.png")
-        img.save(str(out), "PNG")
-        pngs.append((size, out.read_bytes()))
+        pngs.append((size, png_bytes(img)))
         if size == 256:
             img.save(str(OUT_DIR / "icon.png"), "PNG")
     write_ico(pngs, OUT_DIR / "icon.ico")
