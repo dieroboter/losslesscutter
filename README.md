@@ -13,12 +13,11 @@ re-encoded at the beginning and the end.
 
 ## Download
 
-Grab the installer from the [latest release](../../releases/latest)
-(`LosslessCutter-Setup-1.0.exe`). It installs per-user (no admin prompt)
-and adds a Start Menu entry and an uninstaller. A portable zip is attached
-to the release as well.
+Download the portable zip from the [latest release](../../releases/latest),
+unzip it anywhere, and start the app from the unzipped folder.
+No installation needed. Windows 10/11, 64-bit.
 
-The installer is unsigned, so Windows SmartScreen will warn on first run:
+The build is unsigned, so Windows SmartScreen may warn on first run:
 choose "More info" -> "Run anyway".
 
 ## Supported formats
@@ -43,25 +42,36 @@ The selection speed setting (ultrafast ... slower) only affects how fast
 the small re-encoded parts are produced and how small they are, never
 their quality.
 
-## Building from source
+## Building from source (Windows)
 
-Requirements: Python 3.12, PySide6, PyAV 16.0.1, ffmpeg (for test media).
+Requirements: Windows 10/11, Python 3.12 (from python.org, with
+"Add python.exe to PATH" checked during setup), and Git.
 
 ```
-python tools/make_icon.py        # generates src/losslesscutter/icon.ico/.png
-python -m losslesscutter         # run the GUI from src/ (PYTHONPATH=src)
+git clone https://github.com/dieroboter/losslesscutter
+cd losslesscutter
+py -3.12 -m venv .venv
+.venv\Scripts\activate
+pip install av==16.0.1 PySide6-Essentials numpy
+python tools\make_icon.py
+$env:PYTHONPATH = "src"
+python -m losslesscutter
 ```
 
-Portable Windows build (what the release zip is): `python build_portable.py`
-assembles `dist/LosslessCutter/` from the CPython embeddable package and
-win_amd64 wheels in `build-cache/`, with a small C launcher
-(`launcher.c`, cross-compiled with mingw-w64) as `LosslessCutter.exe`.
+PyAV is pinned to 16.0.1 on purpose: newer PyAV versions changed APIs the
+cutting engine relies on.
 
-Installer: `losslesscutter.iss` (Inno Setup 6) wraps the portable folder.
+Tests: install ffmpeg and put it on the PATH, generate the test media with
+`tools\make_test_media.sh` (a shell script — run it in Git Bash or WSL),
+then run `tests\test_engine_integration.py` (6-codec battery) and
+`tests\test_gui_smoke.py` (offscreen GUI end-to-end) with the venv active.
 
-Tests: generate media with `tools/make_test_media.sh`, then run
-`tests/test_engine_integration.py` (6-codec battery) and
-`tests/test_gui_smoke.py` (offscreen GUI end-to-end).
+The portable zip attached to the release is assembled by
+`build_portable.py`, which runs on Linux: it packs the CPython 3.12
+embeddable package and win_amd64 wheels from `build-cache\` and
+cross-compiles the small C launcher (`launcher.c`) with mingw-w64.
+An Inno Setup script (`losslesscutter.iss`, Inno Setup 6) is included for
+wrapping the assembled portable folder in an installer on Windows.
 
 ## Credits and license
 
@@ -72,3 +82,9 @@ open-GOP trailing B-frames, zero-duration final packets, and lossless
 encoder settings.
 
 LosslessCutter itself is MIT licensed (see `LICENSE`).
+
+## Disclaimer
+
+LosslessCutter was written with the help of an AI assistant
+(Muse, by Meta). Use it at your own risk; always keep backups of
+irreplaceable recordings.
