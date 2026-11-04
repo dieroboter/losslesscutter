@@ -1,6 +1,6 @@
 """LosslessCutter engine integration tests.
 
-Expects test media in ../test-media (made by the commands in README-dev notes).
+Expects test media in ../test-media (made by tools/make_test_media.sh).
 Keep-ranges are specified in FRAMES so every boundary lands mid-GOP.
 For each case, at the app's only quality (highest possible / LOSSLESS):
 - the engine returns no exception
