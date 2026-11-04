@@ -8,7 +8,7 @@ Layout:
     Lib/site-packages/     (PyAV 16.0.1, PySide6-Essentials, shiboken6, numpy - win_amd64 wheels)
     app/smartcut/          (engine fork, MIT)
     app/losslesscutter/    (GUI)
-    README.txt, LICENSE files
+    README.md, LICENSE files
 """
 import shutil
 import subprocess
@@ -68,7 +68,7 @@ def main() -> int:
     )
 
     # 6. Docs
-    shutil.copy(ROOT / "README.txt", DIST / "README.txt")
+    shutil.copy(ROOT / "README.md", DIST / "README.md")
     print("assembled:", DIST)
     return 0
 

@@ -4,6 +4,8 @@ A lossless video cutting app for Windows, and nothing else. It smart-cuts:
 everything between cut points is copied bit-identical, and only the small
 parts at the cut points are re-encoded — always at the highest quality the
 codec offers. There is no full re-encode mode anywhere in the app.
+If a file cannot be smart-cut, the export fails with an explanation
+instead of re-encoding your file.
 
 The interface follows the classic VideoReDo workflow: preview with
 frame/GOP stepping, mark start/end, add selections, then save. A readout
@@ -41,6 +43,17 @@ use their finest quantizer (q=1).
 The selection speed setting (ultrafast ... slower) only affects how fast
 the small re-encoded parts are produced and how small they are, never
 their quality.
+
+Keys: Space = play/pause, I = set start, O = set end, Left/Right = one
+frame, Shift+Left/Right = 10 seconds. The transport bar also has
+frame-step, GOP-step, and 10-second jump buttons.
+
+The preview is silent (no audio playback while you edit), but exports
+keep all audio tracks untouched.
+
+Opening a file indexes every frame in it, which can take a few seconds
+for long files. That index is what makes the frame and GOP stepping
+exact.
 
 ## Building from source (Windows)
 
