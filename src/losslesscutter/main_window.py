@@ -11,7 +11,7 @@ from __future__ import annotations
 import os
 from fractions import Fraction
 
-from PySide6.QtCore import Qt, QThread, QTimer
+from PySide6.QtCore import QEvent, Qt, QThread, QTimer
 from PySide6.QtGui import QIcon, QKeySequence, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QApplication, QComboBox, QFileDialog, QHBoxLayout, QLabel, QLineEdit,
@@ -81,6 +81,7 @@ class MainWindow(QMainWindow):
         self._update_checker: UpdateChecker | None = None
 
         self._build_ui()
+        self.goto_edit.installEventFilter(self)
         self._build_shortcuts()
         self._play_timer = QTimer(self)
         self._play_timer.setSingleShot(True)
@@ -376,6 +377,25 @@ class MainWindow(QMainWindow):
             return
         self._stop_play()
         self.show_frame(target)
+        # Hand the keyboard back to the window so the transport shortcuts
+        # (arrows, Space, I/O) work again without another click.
+        self.goto_edit.clearFocus()
+
+    def mousePressEvent(self, event) -> None:
+        # Clicking anywhere outside the Go to box (clicks on buttons and
+        # other focus-taking widgets move focus by themselves; clicks on
+        # labels or empty areas reach this handler) also releases it.
+        if self.goto_edit.hasFocus():
+            self.goto_edit.clearFocus()
+        super().mousePressEvent(event)
+
+    def eventFilter(self, obj, event) -> bool:
+        if (obj is self.goto_edit
+                and event.type() == QEvent.Type.KeyPress
+                and event.key() == Qt.Key.Key_Escape):
+            self.goto_edit.clearFocus()
+            return True
+        return super().eventFilter(obj, event)
 
     # -------------------------------------------------------- update check
     def start_update_check(self) -> None:

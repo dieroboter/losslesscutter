@@ -146,6 +146,33 @@ def main():
     win.show_frame(0)
     print("go to OK")
 
+    # Go to focus handling: Enter, a click outside the box, and Escape all
+    # hand the keyboard back to the window (transport shortcuts again).
+    from PySide6.QtCore import QEvent
+    from PySide6.QtGui import QKeyEvent, QMouseEvent
+    win.goto_edit.setFocus()
+    assert win.goto_edit.hasFocus()
+    win.goto_edit.setText("30")
+    win._on_goto()
+    assert win.current_frame == 30
+    assert not win.goto_edit.hasFocus(), "Enter in Go to kept keyboard focus"
+    win.goto_edit.setFocus()
+    assert win.goto_edit.hasFocus()
+    press = QMouseEvent(
+        QEvent.Type.MouseButtonPress, QPointF(5, 5),
+        Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier)
+    QApplication.sendEvent(win.preview, press)
+    assert not win.goto_edit.hasFocus(), "clicking the preview kept Go to focused"
+    win.goto_edit.setFocus()
+    assert win.goto_edit.hasFocus()
+    esc = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Escape,
+                    Qt.KeyboardModifier.NoModifier)
+    QApplication.sendEvent(win.goto_edit, esc)
+    assert not win.goto_edit.hasFocus(), "Escape kept Go to focused"
+    win.show_frame(0)
+    print("go to focus handling OK")
+
     # Marks + selection frames 26..53
     win.show_frame(26)
     win.set_mark_in()
