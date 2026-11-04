@@ -85,6 +85,5 @@ LosslessCutter itself is MIT licensed (see `LICENSE`).
 
 ## Disclaimer
 
-LosslessCutter was written with the help of an AI assistant
-(Muse, by Meta). Use it at your own risk; always keep backups of
+LosslessCutter was written by AI. Use it at your own risk, and always keep backups of
 irreplaceable recordings.
