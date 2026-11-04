@@ -15,9 +15,9 @@ re-encoded at the beginning and the end.
 
 ## Download
 
-Download the portable zip from the [latest release](../../releases/latest),
-unzip it anywhere, and start the app from the unzipped folder.
-No installation needed. Windows 10/11, 64-bit.
+Get LosslessCutter from the [latest release](../../releases/latest).
+An installer and a portable zip are attached there.
+Windows 10/11, 64-bit.
 
 The build is unsigned, so Windows SmartScreen may warn on first run:
 choose "More info" -> "Run anyway".
