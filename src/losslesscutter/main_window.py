@@ -126,17 +126,28 @@ class MainWindow(QMainWindow):
         self.preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.preview.setStyleSheet("background: black; color: #888;")
         self.preview.setMinimumHeight(320)
+        # Ignored: a loaded frame's pixmap must not feed back into
+        # the layout as a minimum size for the preview.
+        self.preview.setSizePolicy(QSizePolicy.Policy.Ignored,
+                                   QSizePolicy.Policy.Ignored)
         root.addWidget(self.preview, 1)
-        # Breathing room under the preview: with the native Windows
-        # style the slider's groove otherwise rides up against (and
-        # visually over) the preview's bottom edge - worst when the
-        # window is maximized, which needs the larger allowance.
-        root.addSpacing(56)
+        root.addSpacing(12)
+
+        # Everything under the preview lives on an opaque panel.
+        # With the native Windows style, maximized, the preview's
+        # black could paint down over the slider and transport rows;
+        # the panel paints the normal background over its whole area
+        # first, so the controls always sit on the window background.
+        panel = QWidget()
+        panel.setAutoFillBackground(True)
+        broot = QVBoxLayout(panel)
+        broot.setContentsMargins(0, 0, 0, 0)
+        root.addWidget(panel)
 
         self.slider = QSlider(Qt.Orientation.Horizontal)
         self.slider.setEnabled(False)
         self.slider.valueChanged.connect(self._on_slider)
-        root.addWidget(self.slider)
+        broot.addWidget(self.slider)
 
         transport = QHBoxLayout()
         self.prev_gop_btn = QPushButton("Prev GOP")
@@ -182,7 +193,7 @@ class MainWindow(QMainWindow):
         self.volume_slider.valueChanged.connect(
             lambda v: self._audio_volume_cmd.emit(v / 100.0))
         transport.addWidget(self.volume_slider)
-        root.addLayout(transport)
+        broot.addLayout(transport)
 
         marks = QHBoxLayout()
         self.set_in_btn = QPushButton("Set Start  [ I ]")
@@ -196,7 +207,7 @@ class MainWindow(QMainWindow):
         marks.addWidget(self.set_out_btn)
         marks.addWidget(self.marks_label, 1)
         marks.addWidget(self.add_sel_btn)
-        root.addLayout(marks)
+        broot.addLayout(marks)
 
         sel_row = QHBoxLayout()
         self.sel_list = QListWidget()
@@ -233,13 +244,13 @@ class MainWindow(QMainWindow):
         speed_row.addWidget(self.speed_combo, 1)
         sel_btns.addLayout(speed_row, 1)
         sel_row.addLayout(sel_btns)
-        root.addLayout(sel_row)
+        broot.addLayout(sel_row)
 
         self.cut_label = QLabel("")
         self.cut_label.setWordWrap(True)
         self.cut_label.setSizePolicy(
             QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
-        root.addWidget(self.cut_label)
+        broot.addWidget(self.cut_label)
 
         out_row = QHBoxLayout()
         out_row.addWidget(QLabel("Output:"))
@@ -255,19 +266,19 @@ class MainWindow(QMainWindow):
         self.cancel_btn.setEnabled(False)
         self.cancel_btn.clicked.connect(self.cancel_export)
         out_row.addWidget(self.cancel_btn)
-        root.addLayout(out_row)
+        broot.addLayout(out_row)
 
         self.progress = QProgressBar()
         self.progress.setRange(0, 100)
         self.progress.setValue(0)
-        root.addWidget(self.progress)
+        broot.addWidget(self.progress)
         self.status_label = QLabel("Ready")
         self.status_label.setWordWrap(True)
         # A long status text (e.g. the Done line with a full output path)
         # must wrap inside the window, never push the window wider.
         self.status_label.setSizePolicy(
             QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
-        root.addWidget(self.status_label)
+        broot.addWidget(self.status_label)
 
         self.setCentralWidget(central)
 
