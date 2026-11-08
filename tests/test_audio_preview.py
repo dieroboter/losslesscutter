@@ -106,6 +106,11 @@ def main() -> None:
         win = MainWindow()
         win.show()
         win.load_file(str(mp4))
+        for _ in range(3000):
+            app.processEvents()
+            if win._load_thread is None and win.info is not None:
+                break
+            time.sleep(0.005)
         assert win.info is not None and win.info.has_audio
         assert len(win._frame_times) == win.info.frame_count
         assert win.mute_btn.isEnabled() and win.volume_slider.isEnabled()

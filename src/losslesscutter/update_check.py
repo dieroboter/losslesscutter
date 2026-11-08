@@ -15,6 +15,19 @@ LATEST_RELEASE_URL = (
 )
 RELEASES_PAGE = "https://github.com/dieroboter/losslesscutter/releases/latest"
 
+LAST_CHECK_KEY = "update/last_check"
+
+
+def already_checked_today(settings, today: str) -> bool:
+    """True when the given QSettings-like store already has a check
+    recorded for `today` (an ISO date string). At most one network check
+    per day is plenty for a notify-only feature."""
+    return settings.value(LAST_CHECK_KEY) == today
+
+
+def mark_checked_today(settings, today: str) -> None:
+    settings.setValue(LAST_CHECK_KEY, today)
+
 
 def parse_version(text: str) -> tuple[int, ...] | None:
     """'v1.2.3' / '1.2' -> (1, 2, 3) / (1, 2); None if not a version."""

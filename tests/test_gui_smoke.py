@@ -37,6 +37,19 @@ def count_frames(path):
     return n
 
 
+def wait_loaded(app, win, path):
+    """Pump the event loop until the background load of `path` lands."""
+    import time as _time
+    deadline = _time.monotonic() + 60
+    while _time.monotonic() < deadline:
+        app.processEvents()
+        if win._load_thread is None and win.info is not None \
+                and win.info.path == str(path):
+            return
+        _time.sleep(0.005)
+    raise AssertionError(f"timed out loading {path}")
+
+
 def main():
     # Cut-range wording (the user's melobytes1.mp4 case: 311 frames, keep 25-136)
     assert describe_cut(311, [(25, 136)], "keep") == (
@@ -112,6 +125,7 @@ def main():
     print("update notice OK")
 
     win.load_file(str(SRC))
+    wait_loaded(app, win, SRC)
     assert win.info is not None, "file did not load"
     assert win.info.frame_count == 144, f"frame count {win.info.frame_count}"
     assert win.preview.pixmap() is not None and not win.preview.pixmap().isNull(), "no preview frame"
@@ -217,6 +231,7 @@ def main():
         Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier,
     )
     win.dropEvent(ev)
+    wait_loaded(app, win, other)
     assert win.info is not None and win.info.path == str(other), \
         f"drop did not load {other}: {win.info and win.info.path}"
     assert win.cut_label.text() == "", "cut label not reset after drop"

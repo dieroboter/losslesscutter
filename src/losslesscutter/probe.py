@@ -29,7 +29,11 @@ class MediaInfo:
 
 
 def estimate_video_bitrate(path: str) -> int | None:
-    """Average video bitrate in bits/s: stream value if present, else measured."""
+    """Average video bitrate in bits/s: the stream's own value when the
+    container stores one (MP4, MPEG-PS usually do); otherwise estimated
+    from a sample of the first ~10 seconds of packets. MKV stores no
+    per-stream bitrate, and measuring the whole file there meant reading
+    every video packet once just for this number."""
     try:
         with av.open(path) as c:
             vs = next((s for s in c.streams if s.type == "video"), None)
@@ -37,19 +41,33 @@ def estimate_video_bitrate(path: str) -> int | None:
                 return None
             if vs.bit_rate:
                 return int(vs.bit_rate)
-            if not c.duration:
+            if vs.time_base is None:
                 return None
             total = 0
+            first_pts: int | None = None
+            last_end = 0
+            count = 0
             for p in c.demux(vs):
+                if p.pts is None:
+                    continue
+                if first_pts is None:
+                    first_pts = p.pts
                 total += p.size
-            dur = float(c.duration / av.time_base)
+                count += 1
+                last_end = max(last_end, p.pts + (p.duration or 0))
+                span = float((last_end - first_pts) * vs.time_base)
+                if span >= 10.0 or count >= 20000:
+                    break
+            if first_pts is None:
+                return None
+            dur = float((last_end - first_pts) * vs.time_base)
             return int(total * 8 / dur) if dur > 0 else None
     except Exception:
         return None
 
 
-def probe_media(path: str) -> tuple[MediaInfo, MediaContainer]:
-    mc = MediaContainer(path)
+def probe_media(path: str, progress_cb=None) -> tuple[MediaInfo, MediaContainer]:
+    mc = MediaContainer(path, progress_cb=progress_cb)
     if mc.video_stream is None:
         mc.close()
         raise ValueError("No video stream found in this file.")

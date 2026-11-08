@@ -62,8 +62,14 @@ class MediaContainer:
     duration: Fraction
     start_time: Fraction
 
-    def __init__(self, path: str) -> None:
+    def __init__(self, path: str, progress_cb=None) -> None:
         self.path = path
+        # Optional progress hook for the GUI's loading thread: called
+        # with a 0..1 fraction during the packet scan. None (the engine
+        # default) costs one comparison per 8192 packets.
+        self._progress_cb = progress_cb
+        self._packets_seen = 0
+        self._last_video_pts_time: Fraction | None = None
 
         frame_pts = []
         self.video_keyframe_indices = []
@@ -130,6 +136,14 @@ class MediaContainer:
         current_gop_has_rasl = False
 
         for packet in av_container.demux(streams):
+            if self._progress_cb is not None:
+                self._packets_seen += 1
+                if self._packets_seen % 8192 == 0:
+                    if (self._last_video_pts_time is not None
+                            and self.duration > 0):
+                        frac = float((self._last_video_pts_time
+                                      - self.start_time) / self.duration)
+                        self._progress_cb(min(1.0, max(0.0, frac)))
             if packet.pts is None:
                 continue
 
@@ -206,6 +220,9 @@ class MediaContainer:
 
                 # Use PTS as fallback when DTS is None (common in exported segments)
                 last_seen_video_dts = packet.dts if packet.dts is not None else packet.pts
+                if self.video_stream.time_base is not None:
+                    self._last_video_pts_time = (
+                        Fraction(packet.pts) * self.video_stream.time_base)
                 frame_pts.append(packet.pts)
             elif packet.stream.type == 'audio':
                 track = stream_index_to_audio_track[packet.stream_index]

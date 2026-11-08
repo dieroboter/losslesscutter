@@ -6,6 +6,7 @@ keeps frame numbers exact even for VFR material.
 """
 from __future__ import annotations
 
+from bisect import bisect_right
 from fractions import Fraction
 
 import av
@@ -53,12 +54,8 @@ class PreviewPlayer:
     def _seek_to_keyframe(self, index: int) -> None:
         assert self._container is not None and self._mc is not None
         keyframes = self._mc.video_keyframe_indices
-        kf = 0
-        for k in keyframes:
-            if k <= index:
-                kf = k
-            else:
-                break
+        pos = bisect_right(keyframes, index) - 1
+        kf = keyframes[pos] if pos >= 0 else 0
         target_pts = int(self._mc.video_frame_times_pts[kf])
         self._container.seek(target_pts, stream=self._stream, backward=True, any_frame=False)
         self._decoder = self._container.decode(self._stream)

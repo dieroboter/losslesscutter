@@ -3,8 +3,12 @@ from __future__ import annotations
 
 import math
 from fractions import Fraction
+from typing import TYPE_CHECKING
 
-from smartcut.media_container import MediaContainer
+if TYPE_CHECKING:
+    # Annotation only - importing the engine here would pull PyAV/numpy
+    # into the app's startup imports.
+    from smartcut.media_container import MediaContainer
 
 
 def frame_time(mc: MediaContainer, index: int) -> Fraction:

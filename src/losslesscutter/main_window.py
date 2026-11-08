@@ -9,10 +9,12 @@ export fails with an explanation instead of re-encoding the whole file.
 from __future__ import annotations
 
 import os
+import time
 from bisect import bisect_right
+from datetime import date
 from fractions import Fraction
 
-from PySide6.QtCore import QEvent, Qt, QThread, QTimer, Signal
+from PySide6.QtCore import QEvent, QSettings, Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QIcon, QKeySequence, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QApplication, QComboBox, QFileDialog, QHBoxLayout, QLabel, QLineEdit,
@@ -20,34 +22,21 @@ from PySide6.QtWidgets import (
     QSizePolicy, QSlider, QVBoxLayout, QWidget,
 )
 
-from smartcut.media_utils import VideoExportMode, VideoExportQuality
-from smartcut.smart_cut import make_adjusted_segment_times, make_cut_segments
-from smartcut.video_cutter import VideoSettings
-
 from . import __version__
-from .audio_player import QT_AUDIO_AVAILABLE, AudioPlayer
-from .export_worker import ExportWorker
-from .player import PreviewPlayer
-from .probe import MediaInfo, probe_media
 from .segments import (
     describe_cut, frame_end_time, frame_time, parse_goto, positive_segments,
 )
-from .update_check import UpdateChecker, is_newer
+
+# NOTE: nothing from the cutting engine (smartcut, PyAV, numpy) or from
+# QtMultimedia is imported at module level. On a cold start those imports
+# cost ~2.7 s; they are deferred to first use instead (file load, export,
+# audio playback), so the window itself opens with Qt only.
 
 MEDIA_FILTER = (
     "Video files (*.mp4 *.mkv *.mov *.avi *.mpg *.mpeg *.m2ts *.mts *.ts "
     "*.webm *.flv *.wmv *.vob);;All files (*)"
 )
 
-QUALITY_ITEMS = [
-    (VideoExportQuality.SOURCE_MATCHED, "Source matched (recommended)"),
-    (VideoExportQuality.LOSSLESS, "Lossless"),
-    (VideoExportQuality.NEAR_LOSSLESS, "Near lossless"),
-    (VideoExportQuality.INDISTINGUISHABLE, "Almost indistinguishable"),
-    (VideoExportQuality.HIGH, "High"),
-    (VideoExportQuality.NORMAL, "Normal"),
-    (VideoExportQuality.LOW, "Low"),
-]
 SPEED_ITEMS = ["ultrafast", "fast", "medium", "slow", "slower"]
 
 
@@ -75,9 +64,9 @@ class MainWindow(QMainWindow):
         if os.path.exists(_icon):
             self.setWindowIcon(QIcon(_icon))
 
-        self.info: MediaInfo | None = None
+        self.info = None
         self.mc = None
-        self.player = PreviewPlayer()
+        self._player = None
         self.current_frame = 0
         self.mark_in: int | None = None
         self.mark_out: int | None = None
@@ -89,23 +78,16 @@ class MainWindow(QMainWindow):
         self._update_checker: UpdateChecker | None = None
         self._frame_times: list[float] = []
         self._audio_mode = False   # current playback is audio-clocked
-        self._audio: AudioPlayer | None = None
+        # Audio is set up lazily at the first Play of a file with audio:
+        # importing QtMultimedia at startup cost real cold-start time.
+        self._audio = None
         self._audio_thread: QThread | None = None
-        if QT_AUDIO_AVAILABLE:
-            self._audio = AudioPlayer()
-            self._audio_thread = QThread(self)
-            self._audio.moveToThread(self._audio_thread)
-            self._audio_play_cmd.connect(self._audio.play)
-            self._audio_stop_cmd.connect(self._audio.stop)
-            self._audio_volume_cmd.connect(self._audio.set_volume)
-            self._audio_mute_cmd.connect(self._audio.set_muted)
-            self._audio.position_changed.connect(self._on_audio_position)
-            self._audio.finished.connect(self._on_audio_finished)
-            self._audio.failed.connect(self._on_audio_failed)
-            self._audio_thread.start()
-            app = QApplication.instance()
-            if app is not None:
-                app.aboutToQuit.connect(self._shutdown_audio)
+        self._audio_setup_failed = False
+        self._audio_note_shown = False
+        self._load_thread: QThread | None = None
+        self._load_worker = None
+        self._play_base_mono = 0.0     # wall-clock playback (no-audio files)
+        self._play_base_media = 0.0
 
         self._build_ui()
         self.goto_edit.installEventFilter(self)
@@ -312,6 +294,15 @@ class MainWindow(QMainWindow):
             return 250
         return max(1, int(self.info.fps * 10))
 
+    @property
+    def player(self):
+        """The preview decoder, created on first use: importing it pulls
+        in PyAV and the engine, which startup must not pay for."""
+        if self._player is None:
+            from .player import PreviewPlayer
+            self._player = PreviewPlayer()
+        return self._player
+
     # -------------------------------------------------------------- loading
     def open_file_dialog(self) -> None:
         path, _ = QFileDialog.getOpenFileName(self, "Open video", "", MEDIA_FILTER)
@@ -319,21 +310,47 @@ class MainWindow(QMainWindow):
             self.load_file(path)
 
     def load_file(self, path: str) -> None:
-        self.status_label.setText(f"Loading {os.path.basename(path)} ...")
-        QApplication.processEvents()
-        try:
-            info, mc = probe_media(path)
-        except Exception as exc:
-            QMessageBox.critical(self, "Cannot open file", str(exc))
-            self.status_label.setText("Ready")
+        """Start loading in the background: the packet-index scan takes
+        seconds on long files and used to freeze the window solid."""
+        if self._load_thread is not None:
+            self.status_label.setText("Still loading the previous file...")
             return
         self._stop_play()
+        self.status_label.setText(
+            f"Loading {os.path.basename(path)} - indexing frames...")
+        self.progress.setRange(0, 100)
+        self.progress.setValue(0)
+        from .load_worker import LoadWorker
+        self._load_worker = LoadWorker(path)
+        self._load_thread = QThread(self)
+        self._load_worker.moveToThread(self._load_thread)
+        self._load_thread.started.connect(self._load_worker.run)
+        self._load_worker.progress.connect(self.progress.setValue)
+        self._load_worker.finished.connect(self._on_loaded)
+        self._load_worker.failed.connect(self._on_load_failed)
+        self._load_worker.finished.connect(self._load_thread.quit)
+        self._load_worker.failed.connect(self._load_thread.quit)
+        self._load_thread.start()
+
+    def _on_load_failed(self, message: str) -> None:
+        self._load_thread = None
+        self._load_worker = None
+        self.progress.setValue(0)
+        QMessageBox.critical(self, "Cannot open file", message)
+        self.status_label.setText("Ready")
+
+    def _on_loaded(self, info, mc) -> None:
+        self._load_thread = None
+        self._load_worker = None
+        self.progress.setValue(0)
+        path = info.path
         if self.mc is not None:
             try:
                 self.mc.close()
             except Exception:
                 pass
-        self.player.close()
+        if self._player is not None:
+            self._player.close()
         self.info, self.mc = info, mc
         self._frame_times = [
             float(frame_time(mc, i)) for i in range(info.frame_count)]
@@ -358,14 +375,9 @@ class MainWindow(QMainWindow):
         self.mute_btn.setEnabled(info.has_audio)
         self.volume_slider.setEnabled(info.has_audio)
         self.show_frame(0)
-        note = ""
-        if info.has_audio and not QT_AUDIO_AVAILABLE:
-            note = (" Audio preview is off: PySide6-Addons is not "
-                    "installed, so the preview stays silent.")
         self.status_label.setText(
             "Loaded. Mark a start and end, add selections, then Save. "
             "Only the small bits at cut points are re-encoded; everything else is copied bit-identical."
-            + note
         )
 
     # ---------------------------------------------------------- drag & drop
@@ -394,10 +406,13 @@ class MainWindow(QMainWindow):
         self.current_frame = index
         if image is not None:
             pix = QPixmap.fromImage(image)
+            # Smooth scaling every frame is the main rendering cost at
+            # HD resolutions; while playing, fast scaling keeps up and
+            # the still frame snaps back to smooth when playback stops.
+            mode = (Qt.TransformationMode.FastTransformation if self._playing
+                    else Qt.TransformationMode.SmoothTransformation)
             scaled = pix.scaled(
-                self.preview.size(), Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation,
-            )
+                self.preview.size(), Qt.AspectRatioMode.KeepAspectRatio, mode)
             self.preview.setPixmap(scaled)
         self.slider.blockSignals(True)
         self.slider.setValue(index)
@@ -449,11 +464,20 @@ class MainWindow(QMainWindow):
 
     # -------------------------------------------------------- update check
     def start_update_check(self) -> None:
-        """Ask GitHub for the latest release, once, in the background.
-        Called by the app entry point, not the constructor, so tests that
-        build the window directly never trigger a network call."""
+        """Ask GitHub for the latest release, in the background, at most
+        once a day. Called by the app entry point, not the constructor,
+        so tests that build the window directly never trigger a network
+        call. The module import is deferred like the engine's."""
         if self._update_thread is not None:
             return
+        from .update_check import (
+            UpdateChecker, already_checked_today, mark_checked_today,
+        )
+        settings = QSettings("LosslessCutter", "LosslessCutter")
+        today = date.today().isoformat()
+        if already_checked_today(settings, today):
+            return
+        mark_checked_today(settings, today)
         self._update_checker = UpdateChecker()
         self._update_thread = QThread(self)
         self._update_checker.moveToThread(self._update_thread)
@@ -465,6 +489,7 @@ class MainWindow(QMainWindow):
     def _on_update_checked(self, result) -> None:
         if not result:
             return
+        from .update_check import is_newer
         version, url = result
         if is_newer(version, __version__):
             self.update_label.setText(
@@ -485,6 +510,38 @@ class MainWindow(QMainWindow):
             target = max([k for k in keys if k < self.current_frame], default=0)
         self.show_frame(target)
 
+    def _setup_audio(self) -> bool:
+        """Create the audio player and its thread on first use. Returns
+        False when audio output is unavailable in this install (no
+        PySide6-Addons); the caller then plays silently, as before."""
+        if self._audio is not None:
+            return True
+        if self._audio_setup_failed:
+            return False
+        try:
+            from .audio_player import QT_AUDIO_AVAILABLE, AudioPlayer
+        except Exception:
+            self._audio_setup_failed = True
+            return False
+        if not QT_AUDIO_AVAILABLE:
+            self._audio_setup_failed = True
+            return False
+        self._audio = AudioPlayer()
+        self._audio_thread = QThread(self)
+        self._audio.moveToThread(self._audio_thread)
+        self._audio_play_cmd.connect(self._audio.play)
+        self._audio_stop_cmd.connect(self._audio.stop)
+        self._audio_volume_cmd.connect(self._audio.set_volume)
+        self._audio_mute_cmd.connect(self._audio.set_muted)
+        self._audio.position_changed.connect(self._on_audio_position)
+        self._audio.finished.connect(self._on_audio_finished)
+        self._audio.failed.connect(self._on_audio_failed)
+        self._audio_thread.start()
+        app = QApplication.instance()
+        if app is not None:
+            app.aboutToQuit.connect(self._shutdown_audio)
+        return True
+
     def toggle_play(self) -> None:
         if self.info is None:
             return
@@ -493,7 +550,7 @@ class MainWindow(QMainWindow):
         else:
             self._playing = True
             self.play_btn.setText("Pause")
-            if self.info.has_audio and self._audio is not None:
+            if self.info.has_audio and self._setup_audio():
                 # Audio-clocked: the player's position signals drive
                 # show_frame via _on_audio_position. If it reports a
                 # failure, _on_audio_failed falls back to the timer.
@@ -502,7 +559,15 @@ class MainWindow(QMainWindow):
                     self.info.path,
                     float(frame_time(self.mc, self.current_frame)))
             else:
+                if self.info.has_audio and not self._audio_note_shown:
+                    self._audio_note_shown = True
+                    self.status_label.setText(
+                        "Audio preview is off: PySide6-Addons is not "
+                        "installed, so the preview stays silent.")
                 self._audio_mode = False
+                self._play_base_mono = time.monotonic()
+                self._play_base_media = float(
+                    frame_time(self.mc, self.current_frame))
                 self._play_tick()
 
     def _stop_play(self) -> None:
@@ -534,6 +599,9 @@ class MainWindow(QMainWindow):
         # No sound available: keep playing, silently, on the frame timer.
         self._audio_mode = False
         self.status_label.setText(message + " Preview continues silently.")
+        self._play_base_mono = time.monotonic()
+        self._play_base_media = float(
+            frame_time(self.mc, self.current_frame))
         self._play_tick()
 
     def _on_mute_toggled(self, muted: bool) -> None:
@@ -552,14 +620,26 @@ class MainWindow(QMainWindow):
         super().closeEvent(event)
 
     def _play_tick(self) -> None:
+        """Timer-clocked playback for files without audio. Driven by the
+        wall clock, not by counting ticks: if a frame is expensive to
+        decode or scale, the next tick jumps straight to the frame that
+        should be on screen now instead of showing every late frame."""
         if not self._playing or self.info is None:
             return
-        nxt = self.current_frame + 1
-        if nxt >= self.info.frame_count:
+        target = self._play_base_media + (
+            time.monotonic() - self._play_base_mono)
+        if target >= float(self.info.duration):
             self._stop_play()
             return
-        self.show_frame(nxt)
-        delay_ms = max(1, int(float(self.player.next_frame_time(self.current_frame)) * 1000))
+        idx = bisect_right(self._frame_times, target) - 1
+        idx = max(0, min(idx, self.info.frame_count - 1))
+        if idx != self.current_frame:
+            self.show_frame(idx)
+        nxt = idx + 1
+        if nxt >= self.info.frame_count:
+            self._play_timer.start(50)  # ride out the last frame's duration
+            return
+        delay_ms = max(1, int((self._frame_times[nxt] - target) * 1000))
         self._play_timer.start(delay_ms)
 
     # --------------------------------------------------------------- marks
@@ -621,6 +701,9 @@ class MainWindow(QMainWindow):
         cut_text = describe_cut(self.info.frame_count, self.selections, mode)
         self.cut_label.setText(cut_text)
         try:
+            from smartcut.smart_cut import (
+                make_adjusted_segment_times, make_cut_segments,
+            )
             segments = positive_segments(self.mc, self.selections, mode)
             if not segments:
                 self.status_label.setText("Nothing to keep with the current selections and mode.")
@@ -662,8 +745,10 @@ class MainWindow(QMainWindow):
                 else:
                     text += ". Every kept frame falls in a re-encoded part."
             self.status_label.setText(text)
-        except Exception:
-            self.status_label.setText("Selections updated.")
+        except Exception as exc:
+            self.status_label.setText(
+                f"Selections updated. (Could not estimate the re-encode "
+                f"plan: {exc})")
 
     # -------------------------------------------------------------- export
     def browse_output(self) -> None:
@@ -689,6 +774,10 @@ class MainWindow(QMainWindow):
         if not segments:
             QMessageBox.information(self, "Save", "Nothing to keep with the current selections and mode.")
             return
+        from smartcut.media_utils import VideoExportMode, VideoExportQuality
+        from smartcut.video_cutter import VideoSettings
+
+        from .export_worker import ExportWorker
         speed = self.speed_combo.currentData()
         settings = VideoSettings(
             VideoExportMode.SMARTCUT, VideoExportQuality.LOSSLESS,
