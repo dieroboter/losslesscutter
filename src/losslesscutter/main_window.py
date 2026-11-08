@@ -212,7 +212,7 @@ class MainWindow(QMainWindow):
         sel_row = QHBoxLayout()
         self.sel_list = QListWidget()
         self.sel_list.setMinimumHeight(160)
-        self.sel_list.setMaximumHeight(320)
+        self.sel_list.setMaximumHeight(185)
         sel_row.addWidget(self.sel_list, 1)
         sel_btns = QVBoxLayout()
         self.mode_combo = QComboBox()
