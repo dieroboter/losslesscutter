@@ -219,20 +219,13 @@ class MainWindow(QMainWindow):
         root.addWidget(self.cut_label)
 
         export_box = QHBoxLayout()
-        quality_label = QLabel("Re-encode quality: Highest possible (lossless)")
-        quality_label.setToolTip(
-            "The parts at cut points that must be re-encoded are always encoded "
-            "at the highest quality the codec offers. Everything else is copied "
-            "bit-identical. MPEG-2 / MPEG-4 have no lossless mode; they use "
-            "their finest quantizer."
-        )
-        export_box.addWidget(quality_label)
         export_box.addWidget(QLabel("Speed:"))
         self.speed_combo = QComboBox()
         for s in SPEED_ITEMS:
             self.speed_combo.addItem(s.capitalize(), s)
         self.speed_combo.setCurrentText("Medium")
         export_box.addWidget(self.speed_combo)
+        export_box.addStretch(1)
         root.addLayout(export_box)
 
         out_row = QHBoxLayout()
