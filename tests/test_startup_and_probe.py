@@ -214,6 +214,29 @@ def test_fps_and_time_stepping(mkv: Path) -> None:
     assert shown[-1] == 20, shown
     win.step_seconds(-10)
     assert shown[-1] == 15, shown
+    # Landing rule: the frame on screen AT the target time (last frame
+    # starting at or before it), never the frame after - off-grid
+    # targets expose the difference.
+    win._frame_times = [i * 2.0 + 0.5 for i in range(31)]
+    win.current_frame = 15  # t = 30.5
+    win.step_seconds(9)     # target 39.5: frame at 38.5, not 40.5
+    assert shown[-1] == 19, shown
+    win.step_seconds(-9)    # target 29.5: frame at 28.5
+    assert shown[-1] == 14, shown
+    # Frames sparser than the step itself still move by one.
+    win._frame_times = [0.0, 15.0, 30.0]
+    win.current_frame = 0
+    win.step_seconds(10)
+    assert shown[-1] == 1, shown
+    # Go to a timestamp uses the same floor rule against the real
+    # frame times; a bare integer still means a frame number.
+    win._frame_times = [i * 2.0 + 0.5 for i in range(31)]
+    win.goto_edit.setText("0:11")
+    win._on_goto()
+    assert shown[-1] == 5, shown  # frame at 10.5 is on screen at 0:11
+    win.goto_edit.setText("90")
+    win._on_goto()
+    assert shown[-1] == 90, shown
     win.close()
     print("time-based stepping OK")
 

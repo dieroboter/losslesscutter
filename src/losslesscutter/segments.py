@@ -127,6 +127,30 @@ def describe_cut(frame_count: int, selections: list[tuple[int, int]], mode: str)
     return f"Cutting {joined}."
 
 
+def timestamp_seconds(text: str) -> float | None:
+    """Parse a timestamp entry into seconds: "83.5", "1:23.5",
+    "0:01:23.250". A bare integer is a frame number, not a timestamp,
+    and returns None, as does anything unparseable or negative."""
+    s = text.strip()
+    if not s or ("." not in s and ":" not in s):
+        return None
+    parts = s.split(":")
+    if len(parts) > 3:
+        return None
+    try:
+        if len(parts) == 1:
+            seconds = float(parts[0])
+        elif len(parts) == 2:
+            seconds = int(parts[0]) * 60 + float(parts[1])
+        else:
+            seconds = int(parts[0]) * 3600 + int(parts[1]) * 60 + float(parts[2])
+    except ValueError:
+        return None
+    if not math.isfinite(seconds) or seconds < 0:
+        return None
+    return seconds
+
+
 def parse_goto(text: str, fps: Fraction, frame_count: int) -> int | None:
     """Parse a Go-to entry into a target frame index.
 
@@ -146,19 +170,8 @@ def parse_goto(text: str, fps: Fraction, frame_count: int) -> int | None:
         except ValueError:
             return None
         return max(0, min(frame, frame_count - 1))
-    parts = s.split(":")
-    if len(parts) > 3:
-        return None
-    try:
-        if len(parts) == 1:
-            seconds = float(parts[0])
-        elif len(parts) == 2:
-            seconds = int(parts[0]) * 60 + float(parts[1])
-        else:
-            seconds = int(parts[0]) * 3600 + int(parts[1]) * 60 + float(parts[2])
-    except ValueError:
-        return None
-    if not math.isfinite(seconds) or seconds < 0:
+    seconds = timestamp_seconds(s)
+    if seconds is None:
         return None
     frame = int(round(seconds * float(fps)))
     return max(0, min(frame, frame_count - 1))

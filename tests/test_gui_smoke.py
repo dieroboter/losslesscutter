@@ -18,7 +18,9 @@ from PySide6.QtWidgets import QApplication
 
 from losslesscutter.export_worker import ExportWorker
 from losslesscutter.main_window import MainWindow
-from losslesscutter.segments import describe_cut, parse_goto, positive_segments
+from losslesscutter.segments import (
+    describe_cut, parse_goto, positive_segments, timestamp_seconds,
+)
 from losslesscutter.update_check import is_newer, parse_version
 from smartcut.media_utils import VideoExportMode, VideoExportQuality
 from smartcut.video_cutter import VideoSettings
@@ -80,6 +82,14 @@ def main():
     for bad in ("", "abc", "1:2:3:4", "12:", "1::2", "nan", "inf", "-1:30"):
         assert parse_goto(bad, fps, count) is None, f"accepted {bad!r}"
     print("parse_goto OK")
+
+    assert timestamp_seconds("0:10") == 10.0
+    assert timestamp_seconds("1:23.5") == 83.5
+    assert timestamp_seconds("2.0") == 2.0
+    assert timestamp_seconds("90") is None  # bare integer = frame number
+    assert timestamp_seconds("abc") is None
+    assert timestamp_seconds("-1:30") is None
+    print("timestamp_seconds OK")
 
     # Update-check version logic
     assert parse_version("v1.2.3") == (1, 2, 3)
