@@ -125,7 +125,12 @@ class MainWindow(QMainWindow):
         self.preview = QLabel("Drop a video file here, or click Open...")
         self.preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.preview.setStyleSheet("background: black; color: #888;")
-        self.preview.setMinimumHeight(320)
+        # The minimum heights in this window have to fit a maximized
+        # 1080p screen at 150% scaling (a 1280x697 logical window):
+        # when the layout's minimum total exceeds the window, Qt's
+        # box layout overlaps rows instead of clipping them (the list
+        # ran over the output row; the slider over the preview).
+        self.preview.setMinimumHeight(180)
         # Ignored: a loaded frame's pixmap must not feed back into
         # the layout as a minimum size for the preview.
         self.preview.setSizePolicy(QSizePolicy.Policy.Ignored,
@@ -211,7 +216,7 @@ class MainWindow(QMainWindow):
 
         sel_row = QHBoxLayout()
         self.sel_list = QListWidget()
-        self.sel_list.setMinimumHeight(160)
+        self.sel_list.setMinimumHeight(120)
         self.sel_list.setMaximumHeight(185)
         sel_row.addWidget(self.sel_list, 1)
         sel_btns = QVBoxLayout()
