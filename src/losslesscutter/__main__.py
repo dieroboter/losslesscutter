@@ -16,9 +16,10 @@ def main() -> int:
     area = app.primaryScreen().availableGeometry()
     window.move(max(area.left(), area.left() + (area.width() - 1920) // 2),
                 max(area.top(), area.top() + (area.height() - 1080) // 2))
-    # Launch fullscreen (on a 1920x1080 display that is the same
-    # 1920x1080 area, borderless); F11 or Esc returns to the window.
-    window.showFullScreen()
+    # Launch filling the screen WITH the title bar and window
+    # controls (maximized); the 1920x1080 size above is the geometry
+    # it restores to. F11 still toggles borderless fullscreen.
+    window.showMaximized()
     window.start_update_check()
     if len(sys.argv) > 1:
         window.load_file(sys.argv[1])
