@@ -10,7 +10,13 @@ def main() -> int:
     app.setApplicationName("LosslessCutter")
     window = MainWindow()
     app.setWindowIcon(window.windowIcon())
-    window.showMaximized()
+    # Default launch size is 1920x1080 (not maximized), centered on
+    # the screen and clamped to it on smaller displays.
+    window.resize(1920, 1080)
+    area = app.primaryScreen().availableGeometry()
+    window.move(max(area.left(), area.left() + (area.width() - 1920) // 2),
+                max(area.top(), area.top() + (area.height() - 1080) // 2))
+    window.show()
     window.start_update_check()
     if len(sys.argv) > 1:
         window.load_file(sys.argv[1])
