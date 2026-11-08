@@ -127,6 +127,10 @@ class MainWindow(QMainWindow):
         self.preview.setStyleSheet("background: black; color: #888;")
         self.preview.setMinimumHeight(320)
         root.addWidget(self.preview, 1)
+        # Breathing room under the preview: with the native Windows
+        # style the slider's groove otherwise rides up against (and
+        # visually over) the preview's bottom edge.
+        root.addSpacing(24)
 
         self.slider = QSlider(Qt.Orientation.Horizontal)
         self.slider.setEnabled(False)
