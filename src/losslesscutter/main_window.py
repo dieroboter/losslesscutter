@@ -315,6 +315,12 @@ class MainWindow(QMainWindow):
         if self._load_thread is not None:
             self.status_label.setText("Still loading the previous file...")
             return
+        if self._thread is not None:
+            # Loading swaps the file under the UI; mid-export that would
+            # fight over the controls and the progress bar.
+            self.status_label.setText(
+                "Wait for the export to finish before loading another file.")
+            return
         self._stop_play()
         self.status_label.setText(
             f"Loading {os.path.basename(path)} - indexing frames...")
@@ -328,9 +334,16 @@ class MainWindow(QMainWindow):
         self._load_worker.progress.connect(self.progress.setValue)
         self._load_worker.finished.connect(self._on_loaded)
         self._load_worker.failed.connect(self._on_load_failed)
+        self._load_worker.cancelled.connect(self._on_load_cancelled)
         self._load_worker.finished.connect(self._load_thread.quit)
         self._load_worker.failed.connect(self._load_thread.quit)
+        self._load_worker.cancelled.connect(self._load_thread.quit)
         self._load_thread.start()
+
+    def _on_load_cancelled(self) -> None:
+        self._load_thread = None
+        self._load_worker = None
+        self.progress.setValue(0)
 
     def _on_load_failed(self, message: str) -> None:
         self._load_thread = None
@@ -616,6 +629,19 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event) -> None:
         self._stop_play()
+        # A QThread destroyed while still running can abort the process,
+        # so background work is cancelled and waited out before the
+        # window goes away. Both the load scan and the export check
+        # their cancel flag at least every few thousand packets, so
+        # this normally returns at once; the wait is capped regardless.
+        if self._load_thread is not None and self._load_worker is not None:
+            self._load_worker.cancel()
+            self._load_thread.quit()
+            self._load_thread.wait(10000)
+        if self._thread is not None and self._worker is not None:
+            self._worker.cancel()
+            self._thread.quit()
+            self._thread.wait(10000)
         self._shutdown_audio()
         super().closeEvent(event)
 
@@ -757,6 +783,11 @@ class MainWindow(QMainWindow):
             self.out_edit.setText(path)
 
     def start_export(self) -> None:
+        if self._load_thread is not None:
+            self.status_label.setText(
+                "Still loading - wait for the file to finish loading "
+                "before saving.")
+            return
         if self.info is None or self.mc is None:
             return
         if not self.selections:

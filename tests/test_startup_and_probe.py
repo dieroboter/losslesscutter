@@ -107,7 +107,7 @@ def test_timer_playback(mkv: Path) -> None:
 
     from losslesscutter.main_window import MainWindow
 
-    app = QApplication([])
+    app = QApplication.instance() or QApplication([])
     win = MainWindow()
     win.show()
     win.load_file(str(mkv))
@@ -136,12 +136,77 @@ def test_timer_playback(mkv: Path) -> None:
     print("timer playback (wall clock, frame skipping) OK")
 
 
+def test_load_cancel() -> None:
+    from losslesscutter.probe import probe_media
+    sample = ROOT / "test-media" / "h264.mp4"
+    # A progress callback returning False must abort the scan - this is
+    # the mechanism the window's close handler uses to avoid destroying
+    # a running load thread.
+    try:
+        probe_media(str(sample), progress_cb=lambda frac: False)
+        raise AssertionError("scan was not aborted")
+    except InterruptedError:
+        pass
+    calls = []
+
+    def cb(frac):
+        calls.append(frac)
+        return True
+
+    info, mc = probe_media(str(sample), progress_cb=cb)
+    assert info.frame_count == 144
+    assert calls and calls[0] == 0.0
+    assert all(f is None or 0.0 <= f <= 1.0 for f in calls)
+    mc.close()
+    print("load cancel (scan abort) OK")
+
+
+def test_load_export_exclusion(mkv: Path) -> None:
+    from PySide6.QtCore import QThread
+    from PySide6.QtWidgets import QApplication
+
+    from losslesscutter.main_window import MainWindow
+
+    app = QApplication.instance() or QApplication([])
+    win = MainWindow()
+    win.show()
+    win.load_file(str(mkv))
+    deadline = time.monotonic() + 60
+    while time.monotonic() < deadline:
+        app.processEvents()
+        if win._load_thread is None and win.info is not None:
+            break
+        time.sleep(0.005)
+    assert win.info is not None and win.info.path == str(mkv)
+
+    # Pretend an export is running: loading another file is refused and
+    # the current file stays put.
+    win._thread = QThread()
+    win.load_file(str(ROOT / "test-media" / "h264.mp4"))
+    assert "export" in win.status_label.text().lower(), \
+        win.status_label.text()
+    assert win.info.path == str(mkv)
+    win._thread = None
+
+    # Pretend a load is running: starting an export is refused.
+    win._load_thread = QThread()
+    win.start_export()
+    assert "loading" in win.status_label.text().lower(), \
+        win.status_label.text()
+    assert win._worker is None
+    win._load_thread = None
+    win.close()
+    print("load/export mutual exclusion OK")
+
+
 def main() -> None:
     test_lazy_imports()
     test_update_throttle()
+    test_load_cancel()
     mkv = make_mkv()
     test_bitrate_sampling(mkv)
     test_timer_playback(mkv)
+    test_load_export_exclusion(mkv)
     print("ALL STARTUP/PROBE TESTS PASSED")
 
 

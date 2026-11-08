@@ -65,8 +65,11 @@ class MediaContainer:
     def __init__(self, path: str, progress_cb=None) -> None:
         self.path = path
         # Optional progress hook for the GUI's loading thread: called
-        # with a 0..1 fraction during the packet scan. None (the engine
-        # default) costs one comparison per 8192 packets.
+        # with a 0..1 fraction (or None when the position is unknown)
+        # before the packet scan and every 8192 packets during it.
+        # Returning False aborts the scan with InterruptedError - that
+        # is how the GUI cancels a load. None (the engine default)
+        # costs one comparison per packet.
         self._progress_cb = progress_cb
         self._packets_seen = 0
         self._last_video_pts_time: Fraction | None = None
@@ -135,15 +138,22 @@ class MediaContainer:
         current_gop_has_leading = False
         current_gop_has_rasl = False
 
+        if self._progress_cb is not None \
+                and self._progress_cb(0.0) is False:
+            raise InterruptedError("media scan cancelled by caller")
         for packet in av_container.demux(streams):
             if self._progress_cb is not None:
                 self._packets_seen += 1
                 if self._packets_seen % 8192 == 0:
+                    frac = None
                     if (self._last_video_pts_time is not None
                             and self.duration > 0):
-                        frac = float((self._last_video_pts_time
-                                      - self.start_time) / self.duration)
-                        self._progress_cb(min(1.0, max(0.0, frac)))
+                        frac = min(1.0, max(0.0, float(
+                            (self._last_video_pts_time - self.start_time)
+                            / self.duration)))
+                    if self._progress_cb(frac) is False:
+                        raise InterruptedError(
+                            "media scan cancelled by caller")
             if packet.pts is None:
                 continue
 
