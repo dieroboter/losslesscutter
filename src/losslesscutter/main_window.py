@@ -129,8 +129,9 @@ class MainWindow(QMainWindow):
         root.addWidget(self.preview, 1)
         # Breathing room under the preview: with the native Windows
         # style the slider's groove otherwise rides up against (and
-        # visually over) the preview's bottom edge.
-        root.addSpacing(24)
+        # visually over) the preview's bottom edge - worst when the
+        # window is maximized, which needs the larger allowance.
+        root.addSpacing(56)
 
         self.slider = QSlider(Qt.Orientation.Horizontal)
         self.slider.setEnabled(False)
