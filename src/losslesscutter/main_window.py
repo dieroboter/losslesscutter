@@ -102,6 +102,7 @@ class MainWindow(QMainWindow):
     def _build_ui(self) -> None:
         central = QWidget()
         root = QVBoxLayout(central)
+        root.setSpacing(9)
 
         top = QHBoxLayout()
         self.open_btn = QPushButton("Open...")
@@ -136,7 +137,6 @@ class MainWindow(QMainWindow):
         self.preview.setSizePolicy(QSizePolicy.Policy.Ignored,
                                    QSizePolicy.Policy.Ignored)
         root.addWidget(self.preview, 1)
-        root.addSpacing(12)
 
         # Everything under the preview lives on an opaque panel.
         # With the native Windows style, maximized, the preview's
@@ -147,6 +147,7 @@ class MainWindow(QMainWindow):
         panel.setAutoFillBackground(True)
         broot = QVBoxLayout(panel)
         broot.setContentsMargins(0, 0, 0, 0)
+        broot.setSpacing(9)
         root.addWidget(panel)
 
         self.slider = QSlider(Qt.Orientation.Horizontal)
@@ -253,6 +254,7 @@ class MainWindow(QMainWindow):
 
         self.cut_label = QLabel("")
         self.cut_label.setWordWrap(True)
+        self.cut_label.setVisible(False)
         self.cut_label.setSizePolicy(
             QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         broot.addWidget(self.cut_label)
@@ -411,7 +413,7 @@ class MainWindow(QMainWindow):
         self.mark_out = None
         self.selections = []
         self.sel_list.clear()
-        self.cut_label.setText("")
+        self._set_cut_text("")
         self.file_label.setText(os.path.basename(path))
         self.info_label.setText(
             f"{info.codec}  {info.width}x{info.height}  {float(info.fps):.3f} fps  "
@@ -472,6 +474,12 @@ class MainWindow(QMainWindow):
         super().resizeEvent(event)
         if self.info is not None:
             self.show_frame(self.current_frame)
+
+    def _set_cut_text(self, text: str) -> None:
+        # The plan/result line takes layout space only when it
+        # actually has something to say.
+        self.cut_label.setText(text)
+        self.cut_label.setVisible(bool(text))
 
     def keyPressEvent(self, event) -> None:
         # F11 toggles fullscreen; Esc leaves it. (Esc while the Go to
@@ -781,11 +789,11 @@ class MainWindow(QMainWindow):
         if self.info is None or self.mc is None:
             return
         if not self.selections:
-            self.cut_label.setText("")
+            self._set_cut_text("")
             return
         mode = self.mode_combo.currentData()
         cut_text = describe_cut(self.info.frame_count, self.selections, mode)
-        self.cut_label.setText(cut_text)
+        self._set_cut_text(cut_text)
         try:
             from smartcut.smart_cut import (
                 make_adjusted_segment_times, make_cut_segments,
@@ -911,7 +919,7 @@ class MainWindow(QMainWindow):
             cut_text = describe_cut(
                 self.info.frame_count, self.selections,
                 self.mode_combo.currentData()) + " "
-            self.cut_label.setText(cut_text.strip())
+            self._set_cut_text(cut_text.strip())
         kept = stats.get("frames_kept_approx", 0)
         recoded = stats.get("frames_recoded_approx", 0)
         whole = stats.get("frames_recoded_whole", 0)
