@@ -35,15 +35,65 @@ def main() -> int:
         "python312.zip\n.\nLib\\site-packages\napp\n", encoding="utf-8"
     )
 
-    # 3. Wheels -> Lib/site-packages
+    # 3. Wheels -> Lib/site-packages. The PySide6-Addons wheel is pruned
+    # while extracting: the app uses only QtMultimedia from it, and the
+    # rest (Qt 3D, Charts, Location, WebView, the QtQuick3D QML tree -
+    # ~100 MB) would ship dead weight. Pruning is a denylist over the
+    # Addons wheel only, derived from the 6.12.0 Essentials/Addons wheel
+    # diff; Essentials files are never touched. Kept: everything with
+    # "multimedia" or "spatialaudio" in its path, the FFmpeg runtime
+    # libraries the multimedia backend loads (avcodec-*.dll etc., which
+    # match no prune token), and all shared files.
+    prune_tokens = (
+        "3d", "axcontainer", "axbase", "axserver", "bluetooth",
+        "canvaspainter", "charts", "connectivity", "datavisualization",
+        "graphs", "httpserver", "location", "networkauth", "nfc",
+        "positioning", "remoteobjects", "scxml", "sensors", "serialbus",
+        "serialport", "shadertools", "statemachine", "texttospeech",
+        "virtualkeyboard", "webchannel", "websockets", "webview",
+    )
+    prune_dirs = (
+        "PySide6/plugins/assetimporters", "PySide6/plugins/canbus",
+        "PySide6/plugins/geometryloaders", "PySide6/plugins/geoservices",
+        "PySide6/plugins/position", "PySide6/plugins/renderers",
+        "PySide6/plugins/renderplugins", "PySide6/plugins/sceneparsers",
+        "PySide6/plugins/scxmldatamodel", "PySide6/plugins/sensors",
+        "PySide6/plugins/texttospeech", "PySide6/plugins/webview",
+        "PySide6/qml/Qt5Compat", "PySide6/QtAsyncio",
+    )
+    keep_tokens = ("multimedia", "spatialaudio")
+
+    def addons_pruned(name: str) -> bool:
+        if any(name == d or name.startswith(d + "/") for d in prune_dirs):
+            return True
+        low = name.lower()
+        if any(k in low for k in keep_tokens):
+            return False
+        return any(tok in part.lower()
+                   for part in name.split("/") for tok in prune_tokens)
+
     site_packages = DIST / "Lib" / "site-packages"
     site_packages.mkdir(parents=True)
     wheels = sorted((CACHE / "wheels").glob("*.whl"))
     assert wheels, "no wheels in build-cache/wheels"
     for wheel in wheels:
         with zipfile.ZipFile(wheel) as z:
-            z.extractall(site_packages)
-        print("installed", wheel.name)
+            if "addons" in wheel.name.lower():
+                kept = dropped = dropped_bytes = 0
+                for info in z.infolist():
+                    if info.is_dir():
+                        continue
+                    if addons_pruned(info.filename):
+                        dropped += 1
+                        dropped_bytes += info.file_size
+                    else:
+                        z.extract(info, site_packages)
+                        kept += 1
+                print(f"installed {wheel.name} (pruned: {dropped} files, "
+                      f"{dropped_bytes / 1e6:.1f} MB dropped, {kept} kept)")
+            else:
+                z.extractall(site_packages)
+                print("installed", wheel.name)
 
     # 4. App code
     app_dir = DIST / "app"
