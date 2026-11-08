@@ -14,12 +14,12 @@ from bisect import bisect_left, bisect_right
 from datetime import date
 from fractions import Fraction
 
-from PySide6.QtCore import QEvent, QRect, QSettings, Qt, QThread, QTimer, Signal
+from PySide6.QtCore import QEvent, QSettings, Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QIcon, QKeySequence, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QApplication, QComboBox, QFileDialog, QHBoxLayout, QLabel, QLineEdit,
     QListWidget, QMainWindow, QMessageBox, QProgressBar, QPushButton,
-    QSizePolicy, QSlider, QSplitter, QVBoxLayout, QWidget,
+    QSizePolicy, QSlider, QVBoxLayout, QWidget,
 )
 
 from . import __version__
@@ -39,45 +39,6 @@ MEDIA_FILTER = (
 )
 
 SPEED_ITEMS = ["ultrafast", "fast", "medium", "slow", "slower"]
-
-
-class _AspectBox(QWidget):
-    """Holds the preview label at the largest size with the video's
-    aspect ratio that fits, centered, so the black video area is
-    exactly the picture with no empty black bars around it. With no
-    aspect set (no file loaded) the child fills the whole box."""
-
-    def __init__(self, child: QWidget, on_resized) -> None:
-        super().__init__()
-        self._child = child
-        self._on_resized = on_resized
-        self._aspect: float | None = None
-        child.setParent(self)
-
-    def set_aspect(self, aspect: float | None) -> None:
-        if aspect != self._aspect:
-            self._aspect = aspect
-            self._relayout()
-
-    def resizeEvent(self, event) -> None:
-        super().resizeEvent(event)
-        self._relayout()
-
-    def _relayout(self) -> None:
-        area = self.rect()
-        if self._aspect:
-            w = area.width()
-            h = round(w / self._aspect)
-            if h > area.height():
-                h = area.height()
-                w = round(h * self._aspect)
-            geo = QRect(area.x() + (area.width() - w) // 2,
-                        area.y() + (area.height() - h) // 2, w, h)
-        else:
-            geo = area
-        if geo != self._child.geometry():
-            self._child.setGeometry(geo)
-            self._on_resized()
 
 
 def format_timecode(t: Fraction) -> str:
@@ -130,10 +91,6 @@ class MainWindow(QMainWindow):
         self._play_base_media = 0.0
 
         self._build_ui()
-        _split_state = QSettings(
-            "LosslessCutter", "LosslessCutter").value("ui/splitter_state")
-        if _split_state is not None:
-            self._splitter.restoreState(_split_state)
         self.goto_edit.installEventFilter(self)
         self._build_shortcuts()
         self._play_timer = QTimer(self)
@@ -168,26 +125,13 @@ class MainWindow(QMainWindow):
         self.preview = QLabel("Drop a video file here, or click Open...")
         self.preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.preview.setStyleSheet("background: black; color: #888;")
-        self._preview_box = _AspectBox(self.preview, self._on_preview_resized)
-        self._preview_box.setMinimumHeight(320)
-
-        # Preview on top, everything else in a bottom pane; the split
-        # is draggable so the picture can be made taller on demand.
-        splitter = QSplitter(Qt.Orientation.Vertical)
-        splitter.addWidget(self._preview_box)
-        bottom = QWidget()
-        broot = QVBoxLayout(bottom)
-        broot.setContentsMargins(0, 0, 0, 0)
-        splitter.addWidget(bottom)
-        splitter.setStretchFactor(0, 1)
-        splitter.setStretchFactor(1, 0)
-        self._splitter = splitter
-        root.addWidget(splitter, 1)
+        self.preview.setMinimumHeight(320)
+        root.addWidget(self.preview, 1)
 
         self.slider = QSlider(Qt.Orientation.Horizontal)
         self.slider.setEnabled(False)
         self.slider.valueChanged.connect(self._on_slider)
-        broot.addWidget(self.slider)
+        root.addWidget(self.slider)
 
         transport = QHBoxLayout()
         self.prev_gop_btn = QPushButton("Prev GOP")
@@ -233,7 +177,7 @@ class MainWindow(QMainWindow):
         self.volume_slider.valueChanged.connect(
             lambda v: self._audio_volume_cmd.emit(v / 100.0))
         transport.addWidget(self.volume_slider)
-        broot.addLayout(transport)
+        root.addLayout(transport)
 
         marks = QHBoxLayout()
         self.set_in_btn = QPushButton("Set Start  [ I ]")
@@ -247,7 +191,7 @@ class MainWindow(QMainWindow):
         marks.addWidget(self.set_out_btn)
         marks.addWidget(self.marks_label, 1)
         marks.addWidget(self.add_sel_btn)
-        broot.addLayout(marks)
+        root.addLayout(marks)
 
         sel_row = QHBoxLayout()
         self.sel_list = QListWidget()
@@ -262,17 +206,23 @@ class MainWindow(QMainWindow):
         self.remove_sel_btn.clicked.connect(self.remove_selection)
         self.clear_sel_btn = QPushButton("Clear All")
         self.clear_sel_btn.clicked.connect(self.clear_selections)
-        sel_btns.addWidget(self.mode_combo)
-        sel_btns.addWidget(self.remove_sel_btn)
-        sel_btns.addWidget(self.clear_sel_btn)
+        # Fill the column's full height (it matches the list beside
+        # it): without this the three controls bunch at the top and
+        # leave dead space under Clear All.
+        for w in (self.mode_combo, self.remove_sel_btn, self.clear_sel_btn):
+            w.setSizePolicy(QSizePolicy.Policy.Expanding,
+                            QSizePolicy.Policy.Expanding)
+        sel_btns.addWidget(self.mode_combo, 1)
+        sel_btns.addWidget(self.remove_sel_btn, 1)
+        sel_btns.addWidget(self.clear_sel_btn, 1)
         sel_row.addLayout(sel_btns)
-        broot.addLayout(sel_row)
+        root.addLayout(sel_row)
 
         self.cut_label = QLabel("")
         self.cut_label.setWordWrap(True)
         self.cut_label.setSizePolicy(
             QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
-        broot.addWidget(self.cut_label)
+        root.addWidget(self.cut_label)
 
         export_box = QHBoxLayout()
         export_box.addWidget(QLabel("Speed:"))
@@ -282,7 +232,7 @@ class MainWindow(QMainWindow):
         self.speed_combo.setCurrentText("Medium")
         export_box.addWidget(self.speed_combo)
         export_box.addStretch(1)
-        broot.addLayout(export_box)
+        root.addLayout(export_box)
 
         out_row = QHBoxLayout()
         out_row.addWidget(QLabel("Output:"))
@@ -298,7 +248,7 @@ class MainWindow(QMainWindow):
         self.cancel_btn.setEnabled(False)
         self.cancel_btn.clicked.connect(self.cancel_export)
         out_row.addWidget(self.cancel_btn)
-        broot.addLayout(out_row)
+        root.addLayout(out_row)
 
         self.progress = QProgressBar()
         self.progress.setRange(0, 100)
@@ -430,7 +380,6 @@ class MainWindow(QMainWindow):
         if self._player is not None:
             self._player.close()
         self.info, self.mc = info, mc
-        self._preview_box.set_aspect(info.width / info.height)
         self._frame_times = [
             float(frame_time(mc, i)) for i in range(info.frame_count)]
         self.player.open(path, mc)
@@ -496,10 +445,8 @@ class MainWindow(QMainWindow):
         t = frame_time(self.mc, index)
         self.time_label.setText(f"{format_timecode(t)}   Frame {index} / {self.info.frame_count - 1}")
 
-    def _on_preview_resized(self) -> None:
-        # The aspect box resized the preview label (window resize,
-        # splitter drag, or a new file's aspect): re-render the current
-        # frame at the new size.
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
         if self.info is not None:
             self.show_frame(self.current_frame)
 
@@ -704,8 +651,6 @@ class MainWindow(QMainWindow):
             self._audio_thread.wait(2000)
 
     def closeEvent(self, event) -> None:
-        QSettings("LosslessCutter", "LosslessCutter").setValue(
-            "ui/splitter_state", self._splitter.saveState())
         self._stop_play()
         # A QThread destroyed while still running can abort the process,
         # so background work is cancelled and waited out before the
