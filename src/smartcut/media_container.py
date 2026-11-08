@@ -188,12 +188,23 @@ class MediaContainer:
                             self.gop_leading_end_dts.append(None if not current_gop_has_leading else last_seen_video_dts)
                             self.gop_has_rasl.append(current_gop_has_rasl)
 
+                        # A GOP end time may only be recorded for a GOP
+                        # whose start was recorded. Files that begin
+                        # mid-GOP (split VOBs, captures started
+                        # mid-stream) have packets before their first
+                        # keyframe; closing that partial GOP here -
+                        # when its keyframe arrives - would add an end
+                        # entry with no matching start and shift every
+                        # later start/end pairing by one GOP, leaving
+                        # each pair's end before its start and the
+                        # video cutter fetching empty windows.
+                        had_previous_gop = len(self.gop_start_times_dts) > 0
                         self.video_keyframe_indices.append(len(frame_pts))
                         dts = packet.dts if packet.dts is not None else -100_000_000
                         self.gop_start_times_dts.append(dts)
                         self.gop_start_nal_types.append(nal_type)
 
-                        if last_seen_video_dts is not None:
+                        if had_previous_gop and last_seen_video_dts is not None:
                             self.gop_end_times_dts.append(last_seen_video_dts)
 
                         # Start tracking leading pictures if this is a CRA GOP
