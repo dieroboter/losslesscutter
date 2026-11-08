@@ -132,6 +132,17 @@ def test_timer_playback(mkv: Path) -> None:
     win._play_base_mono = time.monotonic() - 60.0
     win._play_tick()
     assert not win._playing
+
+    # Regression: pausing must not leave the fast-scaled playback
+    # render on screen - stopping re-renders the current frame
+    # (smooth-scaled), so the preview pixmap is replaced.
+    win.toggle_play()
+    assert win._playing
+    fast_key = win.preview.pixmap().cacheKey()
+    win.toggle_play()
+    assert not win._playing
+    assert win.preview.pixmap().cacheKey() != fast_key, \
+        "paused frame kept the fast-scaled playback render"
     win.close()
     print("timer playback (wall clock, frame skipping) OK")
 

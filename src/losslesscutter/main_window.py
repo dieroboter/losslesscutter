@@ -589,6 +589,11 @@ class MainWindow(QMainWindow):
         self._audio_stop_cmd.emit()
         self._play_timer.stop()
         self.play_btn.setText("Play")
+        if self.info is not None:
+            # Frames displayed during playback are fast-scaled; without
+            # this, the frame playback stopped on keeps that coarse
+            # render while paused. Re-show it smooth-scaled.
+            self.show_frame(self.current_frame)
 
     # ------------------------------------------------------------ audio in
     def _on_audio_position(self, seconds: float) -> None:
