@@ -3,17 +3,21 @@
 The MediaContainer packet scan takes seconds on long files; running it
 on the GUI thread froze the window for the whole scan. Imported lazily
 by the main window at the first file load, so the engine (PyAV, numpy,
-smartcut) stays out of the app's startup imports.
+smartcut) stays out of the app's startup imports. The probe import
+itself also happens here, on the worker thread: it used to ride along
+with this module's import on the GUI thread, where its ~seconds of
+library loading froze the window before any "loading" text could
+paint. The phase signal announces that step so the window can say
+what the pause is.
 """
 from __future__ import annotations
 
 from PySide6.QtCore import QObject, Signal, Slot
 
-from .probe import probe_media
-
 
 class LoadWorker(QObject):
     progress = Signal(int)                 # percent of the file indexed
+    phase = Signal(str)                    # "libraries", then "indexing"
     finished = Signal(object, object)      # (MediaInfo, MediaContainer)
     failed = Signal(str)
     cancelled = Signal()
@@ -43,6 +47,9 @@ class LoadWorker(QObject):
     @Slot()
     def run(self) -> None:
         try:
+            self.phase.emit("libraries")
+            from .probe import probe_media
+            self.phase.emit("indexing")
             info, mc = probe_media(self._path, progress_cb=self._on_progress)
         except InterruptedError:
             self.cancelled.emit()

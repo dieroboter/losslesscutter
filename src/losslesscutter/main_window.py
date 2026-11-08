@@ -87,6 +87,9 @@ class MainWindow(QMainWindow):
         self._audio_note_shown = False
         self._load_thread: QThread | None = None
         self._load_worker = None
+        self._libs_loaded = False      # engine imports done (first file)
+        self._wait_cursor = False
+        self._loading_name = ""
         self._play_base_mono = 0.0     # wall-clock playback (no-audio files)
         self._play_base_media = 0.0
 
@@ -367,15 +370,28 @@ class MainWindow(QMainWindow):
                 "Wait for the export to finish before loading another file.")
             return
         self._stop_play()
-        self.status_label.setText(
-            f"Loading {os.path.basename(path)} - indexing frames...")
-        self.progress.setRange(0, 100)
+        self._loading_name = os.path.basename(path)
+        if self._libs_loaded:
+            self.status_label.setText(
+                f"Loading {self._loading_name} - indexing frames...")
+            self.progress.setRange(0, 100)
+        else:
+            # First file of the session: the worker thread spends
+            # seconds importing PyAV/numpy/the engine before the scan
+            # can start. Say so, with a busy bar and a wait cursor,
+            # instead of sitting silent with the old status showing.
+            self.status_label.setText(
+                "First file: loading the video libraries (one-time)...")
+            self.progress.setRange(0, 0)
+            QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+            self._wait_cursor = True
         self.progress.setValue(0)
         from .load_worker import LoadWorker
         self._load_worker = LoadWorker(path)
         self._load_thread = QThread(self)
         self._load_worker.moveToThread(self._load_thread)
         self._load_thread.started.connect(self._load_worker.run)
+        self._load_worker.phase.connect(self._on_load_phase)
         self._load_worker.progress.connect(self.progress.setValue)
         self._load_worker.finished.connect(self._on_loaded)
         self._load_worker.failed.connect(self._on_load_failed)
@@ -385,14 +401,32 @@ class MainWindow(QMainWindow):
         self._load_worker.cancelled.connect(self._load_thread.quit)
         self._load_thread.start()
 
+    def _clear_wait_cursor(self) -> None:
+        if self._wait_cursor:
+            self._wait_cursor = False
+            QApplication.restoreOverrideCursor()
+
+    def _on_load_phase(self, phase: str) -> None:
+        if phase == "indexing":
+            # The library imports are done; the scan itself starts now.
+            self._libs_loaded = True
+            self._clear_wait_cursor()
+            self.progress.setRange(0, 100)
+            self.status_label.setText(
+                f"Loading {self._loading_name} - indexing frames...")
+
     def _on_load_cancelled(self) -> None:
         self._load_thread = None
         self._load_worker = None
+        self._clear_wait_cursor()
+        self.progress.setRange(0, 100)
         self.progress.setValue(0)
 
     def _on_load_failed(self, message: str) -> None:
         self._load_thread = None
         self._load_worker = None
+        self._clear_wait_cursor()
+        self.progress.setRange(0, 100)
         self.progress.setValue(0)
         QMessageBox.critical(self, "Cannot open file", message)
         self.status_label.setText("Ready")
@@ -400,6 +434,8 @@ class MainWindow(QMainWindow):
     def _on_loaded(self, info, mc) -> None:
         self._load_thread = None
         self._load_worker = None
+        self._clear_wait_cursor()
+        self.progress.setRange(0, 100)
         self.progress.setValue(0)
         path = info.path
         if self.mc is not None:
@@ -604,11 +640,22 @@ class MainWindow(QMainWindow):
             return True
         if self._audio_setup_failed:
             return False
+        # First Play of the session: importing QtMultimedia and the
+        # audio player takes a moment on this thread. Say so (and
+        # paint it) instead of letting the click look ignored; the
+        # previous status is restored when the import finishes.
+        prev_status = self.status_label.text()
+        self.status_label.setText("Loading audio playback...")
+        QApplication.processEvents()
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:
             from .audio_player import QT_AUDIO_AVAILABLE, AudioPlayer
         except Exception:
             self._audio_setup_failed = True
             return False
+        finally:
+            QApplication.restoreOverrideCursor()
+            self.status_label.setText(prev_status)
         if not QT_AUDIO_AVAILABLE:
             self._audio_setup_failed = True
             return False
