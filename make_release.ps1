@@ -35,14 +35,25 @@ Write-Host "Packaging LosslessCutter $ver"
 # --- icon (the .iss references it; it is generated, not kept in git) ---
 $icon = Join-Path $root "src\losslesscutter\icon.ico"
 if (-not (Test-Path $icon)) {
-    $py = Join-Path $root ".venv\Scripts\python.exe"
-    if (Test-Path $py) {
-        Write-Host "icon.ico missing - generating it..."
-        & $py tools\make_icon.py
-        if ($LASTEXITCODE -ne 0) { Fail "tools\make_icon.py failed." }
+    Write-Host "icon.ico missing - generating it..."
+    $candidates = @()
+    if ($env:VIRTUAL_ENV) { $candidates += Join-Path $env:VIRTUAL_ENV "Scripts\python.exe" }
+    $candidates += Join-Path $root ".venv\Scripts\python.exe"
+    $candidates += Join-Path $root "venv\Scripts\python.exe"
+    $glob = Get-ChildItem (Join-Path $root "*\Scripts\python.exe") -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+    if ($glob) { $candidates += $glob.FullName }
+    $cmdPy = Get-Command python.exe -ErrorAction SilentlyContinue
+    if ($cmdPy) { $candidates += $cmdPy.Source }
+    $py = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+    if (-not $py) {
+        Fail "icon.ico is missing and no Python was found to generate it (looked in VIRTUAL_ENV, .venv, venv, and PATH)."
     }
+    Write-Host "Using Python: $py"
+    & $py tools\make_icon.py
+    if ($LASTEXITCODE -ne 0) { Fail "tools\make_icon.py failed (see its output above)." }
     if (-not (Test-Path $icon)) {
-        Fail "src\losslesscutter\icon.ico is missing and could not be generated."
+        Fail "tools\make_icon.py ran but src\losslesscutter\icon.ico still does not exist."
     }
 }
 
