@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import os
 import time
-from bisect import bisect_right
+from bisect import bisect_left, bisect_right
 from datetime import date
 from fractions import Fraction
 
@@ -136,7 +136,7 @@ class MainWindow(QMainWindow):
         self.prev_gop_btn = QPushButton("Prev GOP")
         self.prev_gop_btn.clicked.connect(lambda: self.step_gop(-1))
         self.back_btn = QPushButton("-10 sec")
-        self.back_btn.clicked.connect(lambda: self.step_frames(-self._ten_seconds()))
+        self.back_btn.clicked.connect(lambda: self.step_seconds(-10))
         self.prev_frame_btn = QPushButton("-1 Frame")
         self.prev_frame_btn.clicked.connect(lambda: self.step_frames(-1))
         self.play_btn = QPushButton("Play")
@@ -144,7 +144,7 @@ class MainWindow(QMainWindow):
         self.next_frame_btn = QPushButton("+1 Frame")
         self.next_frame_btn.clicked.connect(lambda: self.step_frames(1))
         self.fwd_btn = QPushButton("+10 sec")
-        self.fwd_btn.clicked.connect(lambda: self.step_frames(self._ten_seconds()))
+        self.fwd_btn.clicked.connect(lambda: self.step_seconds(10))
         self.next_gop_btn = QPushButton("Next GOP")
         self.next_gop_btn.clicked.connect(lambda: self.step_gop(1))
         for b in (self.prev_gop_btn, self.back_btn, self.prev_frame_btn, self.play_btn,
@@ -276,8 +276,8 @@ class MainWindow(QMainWindow):
             sc("O", self.set_mark_out),
             sc("Left", lambda: self.step_frames(-1)),
             sc("Right", lambda: self.step_frames(1)),
-            sc("Shift+Left", lambda: self.step_frames(-self._ten_seconds())),
-            sc("Shift+Right", lambda: self.step_frames(self._ten_seconds())),
+            sc("Shift+Left", lambda: self.step_seconds(-10)),
+            sc("Shift+Right", lambda: self.step_seconds(10)),
         ]
 
     def _set_controls_enabled(self, enabled: bool) -> None:
@@ -289,10 +289,21 @@ class MainWindow(QMainWindow):
                   self.out_edit, self.browse_btn, self.save_btn):
             w.setEnabled(enabled)
 
-    def _ten_seconds(self) -> int:
-        if self.info is None:
-            return 250
-        return max(1, int(self.info.fps * 10))
+    def step_seconds(self, seconds: float) -> None:
+        """Move by media time, not by frame count: ten seconds of
+        playback whatever the local frame density. Frame-count
+        stepping (seconds x fps) lands wrong on variable-density
+        files and on any file whose declared rate is junk."""
+        self._stop_play()
+        if self.info is None or not self._frame_times:
+            return
+        target = self._frame_times[self.current_frame] + seconds
+        if seconds >= 0:
+            idx = bisect_left(self._frame_times, target)
+        else:
+            idx = bisect_right(self._frame_times, target) - 1
+        idx = max(0, min(idx, self.info.frame_count - 1))
+        self.show_frame(idx)
 
     @property
     def player(self):

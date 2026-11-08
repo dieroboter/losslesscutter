@@ -161,6 +161,63 @@ def test_load_cancel() -> None:
     print("load cancel (scan abort) OK")
 
 
+def test_fps_and_time_stepping(mkv: Path) -> None:
+    from fractions import Fraction
+
+    from PySide6.QtWidgets import QApplication
+
+    from losslesscutter.main_window import MainWindow
+    from losslesscutter.probe import effective_fps
+
+    # The reported real-world case: an MP4 declaring no rate, whose
+    # guessed rate is the 1/1000 stream time base - 1128 frames over
+    # 40.26 s is really ~28 fps, and the 1000 must not survive.
+    fps = effective_fps(1000, 1128, Fraction(40261, 1000))
+    assert abs(float(fps) - 28.02) < 0.1, fps
+    assert effective_fps(None, 1128, Fraction(40261, 1000)) == fps
+    # A sane declared rate is kept as-is.
+    assert effective_fps(Fraction(30000, 1001), 3000,
+                         Fraction(1001, 10)) == Fraction(30000, 1001)
+    # Nothing to measure against: the fallback stands.
+    assert effective_fps(None, 0, Fraction(0)) == 25
+    print("effective fps OK")
+
+    app = QApplication.instance() or QApplication([])
+    win = MainWindow()
+    win.show()
+    win.load_file(str(mkv))
+    deadline = time.monotonic() + 60
+    while time.monotonic() < deadline:
+        app.processEvents()
+        if win._load_thread is None and win.info is not None:
+            break
+        time.sleep(0.005)
+    assert win.info is not None
+
+    shown = []
+
+    def stub(idx):
+        shown.append(idx)
+        win.current_frame = idx
+
+    win.show_frame = stub
+    # Uniform real file: +2 s from frame 0 lands at ~frame 50 (25 fps).
+    win.current_frame = 0
+    win.step_seconds(2)
+    assert 48 <= shown[-1] <= 52, shown
+    # Sparse synthetic density (one frame every 2 s): +/-10 s must
+    # move five frames BY TIME - frame-count math (10 s x fps) is the
+    # reported bug and would clamp to the ends here.
+    win._frame_times = [i * 2.0 for i in range(31)]
+    win.current_frame = 15
+    win.step_seconds(10)
+    assert shown[-1] == 20, shown
+    win.step_seconds(-10)
+    assert shown[-1] == 15, shown
+    win.close()
+    print("time-based stepping OK")
+
+
 def test_load_export_exclusion(mkv: Path) -> None:
     from PySide6.QtCore import QThread
     from PySide6.QtWidgets import QApplication
@@ -206,6 +263,7 @@ def main() -> None:
     mkv = make_mkv()
     test_bitrate_sampling(mkv)
     test_timer_playback(mkv)
+    test_fps_and_time_stepping(mkv)
     test_load_export_exclusion(mkv)
     print("ALL STARTUP/PROBE TESTS PASSED")
 

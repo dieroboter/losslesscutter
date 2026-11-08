@@ -66,21 +66,42 @@ def estimate_video_bitrate(path: str) -> int | None:
         return None
 
 
+def effective_fps(declared, frame_count: int,
+                  duration: Fraction) -> Fraction:
+    """The frame rate frame/time conversions should use. Some files
+    declare no real rate - one real-world MP4 declares nothing, and
+    the guessed rate falls back to its 1/1000 stream time base, making
+    the file look like 1000 fps when its true rate is 28 (frame
+    stepping and Go to then multiply by 1000 and clamp to the ends).
+    Trust the declared rate only when it roughly agrees with the
+    actual frame count over the duration; otherwise use that."""
+    if frame_count <= 0 or duration <= 0:
+        return Fraction(declared) if declared else Fraction(25, 1)
+    actual = Fraction(frame_count, 1) / duration
+    if not declared:
+        return actual
+    ratio = Fraction(declared) / actual
+    return Fraction(declared) if Fraction(1, 2) <= ratio <= 2 else actual
+
+
 def probe_media(path: str, progress_cb=None) -> tuple[MediaInfo, MediaContainer]:
     mc = MediaContainer(path, progress_cb=progress_cb)
     if mc.video_stream is None:
         mc.close()
         raise ValueError("No video stream found in this file.")
     vs = mc.video_stream
-    fps = vs.average_rate or vs.guessed_rate or Fraction(25, 1)
+    frame_count = int(len(mc.video_frame_times))
+    duration = Fraction(mc.duration)
+    fps = effective_fps(vs.average_rate or vs.guessed_rate,
+                        frame_count, duration)
     info = MediaInfo(
         path=path,
         codec=vs.codec_context.name,
         width=vs.codec_context.width,
         height=vs.codec_context.height,
-        fps=Fraction(fps),
-        frame_count=int(len(mc.video_frame_times)),
-        duration=Fraction(mc.duration),
+        fps=fps,
+        frame_count=frame_count,
+        duration=duration,
         keyframe_indices=list(mc.video_keyframe_indices),
         video_bitrate=estimate_video_bitrate(path),
         has_audio=len(mc.audio_tracks) > 0,
