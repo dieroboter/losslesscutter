@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import os
 import time
-from bisect import bisect_right
+from bisect import bisect_left, bisect_right
 from datetime import date
 from fractions import Fraction
 
@@ -295,15 +295,17 @@ class MainWindow(QMainWindow):
         playback whatever the local frame density. Frame-count
         stepping (seconds x fps) lands wrong on variable-density
         files and on any file whose declared rate is junk. The
-        landing frame is the one on screen at the target time - the
-        last frame starting at or before it - in both directions."""
+        landing frame is the one starting at the target time, or
+        the first frame after it when none starts exactly there -
+        the same rule in both directions (his choice)."""
         self._stop_play()
         if self.info is None or not self._frame_times:
             return
         target = self._frame_times[self.current_frame] + seconds
-        idx = bisect_right(self._frame_times, target) - 1
+        idx = bisect_left(self._frame_times, target)
         if idx == self.current_frame and seconds != 0:
-            # Frames sparser than the step itself: still move one.
+            # Going back, the current frame itself can be the first
+            # one at-or-after the target; still move one frame.
             idx += 1 if seconds > 0 else -1
         idx = max(0, min(idx, self.info.frame_count - 1))
         self.show_frame(idx)
@@ -459,11 +461,12 @@ class MainWindow(QMainWindow):
         target = None
         seconds = timestamp_seconds(self.goto_edit.text())
         if seconds is not None and self._frame_times:
-            # Land on the frame actually on screen at that time - the
-            # last frame starting at or before it. Frame-rate
-            # multiplication lands late on irregular frame grids.
+            # Land on the frame starting at that time, or the first
+            # frame after it when none starts exactly there (his
+            # chosen rule for time jumps). Frame-rate multiplication
+            # lands frames late on irregular frame grids.
             target = max(0, min(
-                bisect_right(self._frame_times, seconds) - 1,
+                bisect_left(self._frame_times, seconds),
                 self.info.frame_count - 1))
         else:
             target = parse_goto(

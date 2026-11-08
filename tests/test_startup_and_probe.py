@@ -214,26 +214,29 @@ def test_fps_and_time_stepping(mkv: Path) -> None:
     assert shown[-1] == 20, shown
     win.step_seconds(-10)
     assert shown[-1] == 15, shown
-    # Landing rule: the frame on screen AT the target time (last frame
-    # starting at or before it), never the frame after - off-grid
-    # targets expose the difference.
+    # Landing rule: the frame starting AT the target time, or the
+    # first frame after it when none starts exactly there (his
+    # choice) - off-grid targets expose the difference, both ways.
     win._frame_times = [i * 2.0 + 0.5 for i in range(31)]
     win.current_frame = 15  # t = 30.5
-    win.step_seconds(9)     # target 39.5: frame at 38.5, not 40.5
-    assert shown[-1] == 19, shown
-    win.step_seconds(-9)    # target 29.5: frame at 28.5
-    assert shown[-1] == 14, shown
+    win.step_seconds(9)     # target 39.5: frame at 40.5, not 38.5
+    assert shown[-1] == 20, shown
+    win.step_seconds(-9)    # target 31.5: frame at 32.5, same rule back
+    assert shown[-1] == 16, shown
     # Frames sparser than the step itself still move by one.
     win._frame_times = [0.0, 15.0, 30.0]
     win.current_frame = 0
     win.step_seconds(10)
     assert shown[-1] == 1, shown
-    # Go to a timestamp uses the same floor rule against the real
-    # frame times; a bare integer still means a frame number.
+    win.current_frame = 2   # t = 30; back 10 targets 20, whose first
+    win.step_seconds(-10)   # at-or-after frame is the current one
+    assert shown[-1] == 1, shown
+    # Go to a timestamp uses the same at-or-after rule against the
+    # real frame times; a bare integer still means a frame number.
     win._frame_times = [i * 2.0 + 0.5 for i in range(31)]
     win.goto_edit.setText("0:11")
     win._on_goto()
-    assert shown[-1] == 5, shown  # frame at 10.5 is on screen at 0:11
+    assert shown[-1] == 6, shown  # first frame at/after 0:11 is at 12.5
     win.goto_edit.setText("90")
     win._on_goto()
     assert shown[-1] == 90, shown
