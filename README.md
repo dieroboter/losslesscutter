@@ -30,13 +30,17 @@ It never downloads or installs anything by itself.
 
 ## Supported formats
 
-H.264, HEVC (H.265), VP9, AV1, MPEG-2, and MPEG-4 ASP video, in the usual
-containers (MP4, MKV, MOV, AVI, MPG, TS, WebM, ...). Audio is passed
+H.264, HEVC (H.265), VP9, VP8, AV1, MPEG-2, and MPEG-4 ASP video, in the
+usual containers (MP4, MKV, MOV, AVI, MPG, TS, WebM, ...). Audio is passed
 through untouched; supported subtitle tracks are cut along with the video.
+A few codec/container pairs are impossible (VP8 video, for example, cannot
+be stored in MP4); the app checks before exporting and says so instead of
+failing mid-export.
 
 "Highest quality" per codec: H.264/HEVC/VP9/AV1 re-encode losslessly
-(CRF 0 / equivalent). MPEG-2 and MPEG-4 ASP have no lossless mode, so they
-use their finest quantizer (q=1).
+(CRF 0 / equivalent). MPEG-2, MPEG-4 ASP, and VP8 have no lossless mode:
+MPEG-2 and MPEG-4 ASP use their finest quantizer (q=1), and VP8 uses CRF 4,
+the finest setting its encoder accepts.
 
 ## Usage
 
@@ -88,7 +92,7 @@ cutting engine relies on.
 
 Tests: install ffmpeg and put it on the PATH, generate the test media with
 `tools\make_test_media.sh` (a shell script — run it in Git Bash or WSL),
-then run `tests\test_engine_integration.py` (6-codec battery) and
+then run `tests\test_engine_integration.py` (7-codec battery) and
 `tests\test_gui_smoke.py` (offscreen GUI end-to-end) with the venv active.
 
 The portable zip attached to the release is assembled by
