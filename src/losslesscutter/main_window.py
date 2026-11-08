@@ -281,6 +281,11 @@ class MainWindow(QMainWindow):
         broot.addWidget(self.progress)
         self.status_label = QLabel("Ready")
         self.status_label.setWordWrap(True)
+        # The bottom margin raises the text within the band under
+        # the progress bar, where it otherwise sits low (measured
+        # ~11 physical px below the band's middle at 150% scaling;
+        # a 7 px margin lifts the centered text by that much).
+        self.status_label.setContentsMargins(0, 0, 0, 7)
         # A long status text (e.g. the Done line with a full output path)
         # must wrap inside the window, never push the window wider.
         self.status_label.setSizePolicy(
