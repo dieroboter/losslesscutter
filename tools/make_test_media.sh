@@ -17,6 +17,8 @@ ffmpeg -y -v error -f lavfi -i "$V:rate=25:duration=6" -f lavfi -i "$A" \
 ffmpeg -y -v error -f lavfi -i "$V:rate=24:duration=6" -f lavfi -i "$A" \
   -c:v libvpx-vp9 -g 24 -b:v 400k -c:a libopus -shortest test-media/vp9.webm
 ffmpeg -y -v error -f lavfi -i "$V:rate=24:duration=6" -f lavfi -i "$A" \
+  -c:v libvpx -g 24 -b:v 400k -c:a libopus -shortest test-media/vp8.webm
+ffmpeg -y -v error -f lavfi -i "$V:rate=24:duration=6" -f lavfi -i "$A" \
   -c:v libsvtav1 -g 24 -pix_fmt yuv420p -c:a aac -shortest test-media/av1.mp4
 ffmpeg -y -v error -f lavfi -i "$V:rate=24:duration=6" -f lavfi -i "$A" \
   -c:v mpeg4 -g 24 -c:a libmp3lame -shortest test-media/mpeg4.avi

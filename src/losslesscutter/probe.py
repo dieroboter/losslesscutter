@@ -1,8 +1,11 @@
 """Media probing helpers shared by the GUI and tests."""
 from __future__ import annotations
 
+import os
+import tempfile
 from dataclasses import dataclass, field
 from fractions import Fraction
+from pathlib import Path
 
 import av
 
@@ -82,6 +85,33 @@ def effective_fps(declared, frame_count: int,
         return actual
     ratio = Fraction(declared) / actual
     return Fraction(declared) if Fraction(1, 2) <= ratio <= 2 else actual
+
+
+def output_container_error(mc: MediaContainer, out_path: str) -> str | None:
+    """Dry-run the output stream creation an export would perform, in a
+    throwaway file with the same extension. Some containers cannot hold
+    a source's streams at all (VP8 video has no MP4 tag, AAC audio has
+    no WebM tag), and the engine only finds out when it creates the
+    output streams - surfacing that here lets the GUI refuse up front
+    with a usable message. Returns the raw error text, or None when
+    the container accepts every stream."""
+    suffix = Path(out_path).suffix or ".mkv"
+    fd, tmp = tempfile.mkstemp(prefix="lc-probe-", suffix=suffix)
+    os.close(fd)
+    try:
+        with av.open(tmp, "w") as out:
+            if mc.video_stream is not None:
+                out.add_stream_from_template(mc.video_stream)
+            for track in mc.audio_tracks:
+                out.add_stream_from_template(track.av_stream)
+        return None
+    except Exception as exc:
+        return str(exc)
+    finally:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
 
 
 def probe_media(path: str, progress_cb=None) -> tuple[MediaInfo, MediaContainer]:

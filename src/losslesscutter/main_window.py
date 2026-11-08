@@ -829,6 +829,15 @@ class MainWindow(QMainWindow):
         if not segments:
             QMessageBox.information(self, "Save", "Nothing to keep with the current selections and mode.")
             return
+        from .probe import output_container_error
+        problem = output_container_error(self.mc, out_path)
+        if problem is not None:
+            QMessageBox.warning(
+                self, "Save",
+                f"Can't export to {os.path.basename(out_path)}: {problem}\n\n"
+                "If the output format can't hold this file's streams, "
+                "saving as .mkv instead keeps the cut lossless.")
+            return
         from smartcut.media_utils import VideoExportMode, VideoExportQuality
         from smartcut.video_cutter import VideoSettings
 

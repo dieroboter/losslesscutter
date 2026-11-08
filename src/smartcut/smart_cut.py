@@ -120,6 +120,20 @@ def smart_cut(media_container: MediaContainer, positive_segments: list[tuple[Fra
             fps = Fraction(0)
             if media_container.video_stream is not None:
                 fps = media_container.video_stream.average_rate or media_container.video_stream.guessed_rate or Fraction(0)
+                # Some files declare no real rate and the guessed rate
+                # is just the stream time base (a "1000 fps" MP4 whose
+                # true rate is 28); every estimate below would then be
+                # garbage. When the declared rate wildly disagrees with
+                # the actual frame count over the duration, use that.
+                try:
+                    n_frames = len(media_container.video_frame_times)
+                    duration = Fraction(media_container.duration)
+                    if fps and n_frames > 0 and duration > 0:
+                        actual = Fraction(n_frames, 1) / duration
+                        if not (Fraction(1, 2) <= fps / actual <= 2):
+                            fps = actual
+                except Exception:
+                    pass
             recode_segments = [c for c in cut_segments if c.require_recode]
             stats_out['segments_total'] = len(cut_segments)
             stats_out['segments_recoded'] = len(recode_segments)

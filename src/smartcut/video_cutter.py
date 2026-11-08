@@ -306,6 +306,13 @@ class VideoCutter:
                 crf_value += 4
             if self.video_settings.quality == VideoExportQuality.LOSSLESS:
                 crf_value = 0
+            if self.codec_name == 'vp8':
+                # libvpx (VP8) rejects crf below 4 outright
+                # (avcodec_open2 fails with EINVAL) and VP8 has no
+                # lossless mode at all; crf 4 is the finest setting it
+                # accepts - the same "finest the codec offers" mapping
+                # MPEG-2/MPEG-4 ASP get via q=1 below.
+                crf_value = max(crf_value, 4)
 
             self.encoding_options = {'crf': str(crf_value)}
             if self.codec_name == 'vp9' and self.video_settings.quality == VideoExportQuality.LOSSLESS:

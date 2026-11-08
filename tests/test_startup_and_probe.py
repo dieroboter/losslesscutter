@@ -244,6 +244,26 @@ def test_fps_and_time_stepping(mkv: Path) -> None:
     print("time-based stepping OK")
 
 
+def test_output_container_check() -> None:
+    from losslesscutter.probe import output_container_error, probe_media
+    # VP8 + Opus (WebM): an MP4 output cannot hold VP8 at all - this is
+    # the failure a real-world VP8-in-MP4 file produced. MKV/WebM can.
+    info, mc = probe_media(str(ROOT / "test-media" / "vp8.webm"))
+    try:
+        err = output_container_error(mc, "whatever.mp4")
+        assert err is not None and "mp4" in err, err
+        assert output_container_error(mc, "whatever.mkv") is None
+        assert output_container_error(mc, "whatever.webm") is None
+    finally:
+        mc.close()
+    info, mc = probe_media(str(ROOT / "test-media" / "h264.mp4"))
+    try:
+        assert output_container_error(mc, "whatever.mp4") is None
+    finally:
+        mc.close()
+    print("output container check OK")
+
+
 def test_load_export_exclusion(mkv: Path) -> None:
     from PySide6.QtCore import QThread
     from PySide6.QtWidgets import QApplication
@@ -290,6 +310,7 @@ def main() -> None:
     test_bitrate_sampling(mkv)
     test_timer_playback(mkv)
     test_fps_and_time_stepping(mkv)
+    test_output_container_check()
     test_load_export_exclusion(mkv)
     print("ALL STARTUP/PROBE TESTS PASSED")
 
