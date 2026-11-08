@@ -13,7 +13,7 @@
 #
 # Outputs:
 #   LosslessCutter-<version>-portable.zip  (repo root)
-#   dist-installer\LosslessCutter-Setup-<version>.exe
+#   dist-installer\LosslessCutter-<version>-setup.exe
 
 $ErrorActionPreference = "Stop"
 $root = $PSScriptRoot
@@ -162,7 +162,7 @@ Write-Host "Building installer with $iscc ..."
 & $iscc (Join-Path $root "losslesscutter.iss")
 if ($LASTEXITCODE -ne 0) { Fail "Inno Setup compile failed." }
 
-$setup = Join-Path $root "dist-installer\LosslessCutter-Setup-$ver.exe"
+$setup = Join-Path $root "dist-installer\LosslessCutter-$ver-setup.exe"
 if (-not (Test-Path $setup)) {
     Fail "installer output not found at $setup"
 }
