@@ -195,7 +195,8 @@ class MainWindow(QMainWindow):
 
         sel_row = QHBoxLayout()
         self.sel_list = QListWidget()
-        self.sel_list.setMaximumHeight(110)
+        self.sel_list.setMinimumHeight(160)
+        self.sel_list.setMaximumHeight(320)
         sel_row.addWidget(self.sel_list, 1)
         sel_btns = QVBoxLayout()
         self.mode_combo = QComboBox()
@@ -207,14 +208,25 @@ class MainWindow(QMainWindow):
         self.clear_sel_btn = QPushButton("Clear All")
         self.clear_sel_btn.clicked.connect(self.clear_selections)
         # Fill the column's full height (it matches the list beside
-        # it): without this the three controls bunch at the top and
-        # leave dead space under Clear All.
+        # it): without this the controls bunch at the top and leave
+        # dead space under Clear All. The speed selector lives at the
+        # bottom of this column.
         for w in (self.mode_combo, self.remove_sel_btn, self.clear_sel_btn):
             w.setSizePolicy(QSizePolicy.Policy.Expanding,
                             QSizePolicy.Policy.Expanding)
         sel_btns.addWidget(self.mode_combo, 1)
         sel_btns.addWidget(self.remove_sel_btn, 1)
         sel_btns.addWidget(self.clear_sel_btn, 1)
+        speed_row = QHBoxLayout()
+        speed_row.addWidget(QLabel("Speed:"))
+        self.speed_combo = QComboBox()
+        for s in SPEED_ITEMS:
+            self.speed_combo.addItem(s.capitalize(), s)
+        self.speed_combo.setCurrentText("Medium")
+        self.speed_combo.setSizePolicy(QSizePolicy.Policy.Expanding,
+                                       QSizePolicy.Policy.Expanding)
+        speed_row.addWidget(self.speed_combo, 1)
+        sel_btns.addLayout(speed_row, 1)
         sel_row.addLayout(sel_btns)
         root.addLayout(sel_row)
 
@@ -223,16 +235,6 @@ class MainWindow(QMainWindow):
         self.cut_label.setSizePolicy(
             QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         root.addWidget(self.cut_label)
-
-        export_box = QHBoxLayout()
-        export_box.addWidget(QLabel("Speed:"))
-        self.speed_combo = QComboBox()
-        for s in SPEED_ITEMS:
-            self.speed_combo.addItem(s.capitalize(), s)
-        self.speed_combo.setCurrentText("Medium")
-        export_box.addWidget(self.speed_combo)
-        export_box.addStretch(1)
-        root.addLayout(export_box)
 
         out_row = QHBoxLayout()
         out_row.addWidget(QLabel("Output:"))
