@@ -419,13 +419,10 @@ class MainWindow(QMainWindow):
         self.current_frame = index
         if image is not None:
             pix = QPixmap.fromImage(image)
-            # Smooth scaling every frame is the main rendering cost at
-            # HD resolutions; while playing, fast scaling keeps up and
-            # the still frame snaps back to smooth when playback stops.
-            mode = (Qt.TransformationMode.FastTransformation if self._playing
-                    else Qt.TransformationMode.SmoothTransformation)
             scaled = pix.scaled(
-                self.preview.size(), Qt.AspectRatioMode.KeepAspectRatio, mode)
+                self.preview.size(), Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
             self.preview.setPixmap(scaled)
         self.slider.blockSignals(True)
         self.slider.setValue(index)
@@ -589,11 +586,6 @@ class MainWindow(QMainWindow):
         self._audio_stop_cmd.emit()
         self._play_timer.stop()
         self.play_btn.setText("Play")
-        if self.info is not None:
-            # Frames displayed during playback are fast-scaled; without
-            # this, the frame playback stopped on keeps that coarse
-            # render while paused. Re-show it smooth-scaled.
-            self.show_frame(self.current_frame)
 
     # ------------------------------------------------------------ audio in
     def _on_audio_position(self, seconds: float) -> None:
