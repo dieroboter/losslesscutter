@@ -16,7 +16,9 @@ def main() -> int:
     area = app.primaryScreen().availableGeometry()
     window.move(max(area.left(), area.left() + (area.width() - 1920) // 2),
                 max(area.top(), area.top() + (area.height() - 1080) // 2))
-    window.show()
+    # Launch fullscreen (on a 1920x1080 display that is the same
+    # 1920x1080 area, borderless); F11 or Esc returns to the window.
+    window.showFullScreen()
     window.start_update_check()
     if len(sys.argv) > 1:
         window.load_file(sys.argv[1])

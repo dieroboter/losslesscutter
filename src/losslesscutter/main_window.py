@@ -468,6 +468,20 @@ class MainWindow(QMainWindow):
         if self.info is not None:
             self.show_frame(self.current_frame)
 
+    def keyPressEvent(self, event) -> None:
+        # F11 toggles fullscreen; Esc leaves it. (Esc while the Go to
+        # box is focused is consumed by its event filter first and
+        # only releases the box, as before.)
+        if event.key() == Qt.Key.Key_F11:
+            if self.isFullScreen():
+                self.showNormal()
+            else:
+                self.showFullScreen()
+        elif event.key() == Qt.Key.Key_Escape and self.isFullScreen():
+            self.showNormal()
+        else:
+            super().keyPressEvent(event)
+
     def _on_slider(self, value: int) -> None:
         self._stop_play()
         self.show_frame(value)
