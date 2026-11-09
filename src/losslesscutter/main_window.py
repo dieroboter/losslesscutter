@@ -375,6 +375,17 @@ class MainWindow(QMainWindow):
             self.status_label.setText(
                 "Wait for the export to finish before loading another file.")
             return
+        if self.info is not None:
+            # A file is already open (and nothing is exporting): ask
+            # before swapping it out from under the user's marks.
+            answer = QMessageBox.question(
+                self, "Open a different file",
+                f"{os.path.basename(self.info.path)} is open. "
+                f"Close it and open {os.path.basename(path)} instead?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No)
+            if answer != QMessageBox.StandardButton.Yes:
+                return
         self._stop_play()
         self._loading_name = os.path.basename(path)
         if self._libs_loaded:
@@ -998,6 +1009,10 @@ class MainWindow(QMainWindow):
             self.status_label.setText("Cancelling...")
 
     def _export_done(self, stats: dict, out_path: str) -> None:
+        # Clear the export state: leaving it set made every later
+        # Open claim an export was still running.
+        self._thread = None
+        self._worker = None
         self.save_btn.setEnabled(True)
         self.cancel_btn.setEnabled(False)
         cut_text = ""
@@ -1030,6 +1045,8 @@ class MainWindow(QMainWindow):
         self.progress.setValue(100)
 
     def _export_failed(self, message: str) -> None:
+        self._thread = None
+        self._worker = None
         self.save_btn.setEnabled(True)
         self.cancel_btn.setEnabled(False)
         self.status_label.setText(message)

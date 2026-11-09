@@ -232,16 +232,40 @@ def main():
     assert got == 28, f"exported frames {got} != 28"
     print("export stats:", stats)
 
-    # Drag & drop: dropping another file loads it
-    other = ROOT / "test-media" / "mpeg2.mpg"
-    mime = QMimeData()
-    mime.setUrls([QUrl.fromLocalFile(str(other))])
-    ev = QDropEvent(
-        QPointF(10, 10), Qt.DropAction.CopyAction, mime,
-        Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier,
-    )
-    win.dropEvent(ev)
-    wait_loaded(app, win, other)
+    # Drag & drop: dropping another file loads it - after asking,
+    # since a file is already open (the open-another confirmation).
+    # Answer Yes via a shim over the real QMessageBox.
+    import losslesscutter.main_window as _mw
+    from PySide6.QtWidgets import QMessageBox as _RealBox
+
+    asked = []
+
+    class _YesBox:
+        StandardButton = _RealBox.StandardButton
+
+        @staticmethod
+        def question(parent, title, text, buttons, default):
+            asked.append(text)
+            return _RealBox.StandardButton.Yes
+
+        def __getattr__(self, name):
+            return getattr(_RealBox, name)
+
+    _real_box = _mw.QMessageBox
+    _mw.QMessageBox = _YesBox()
+    try:
+        other = ROOT / "test-media" / "mpeg2.mpg"
+        mime = QMimeData()
+        mime.setUrls([QUrl.fromLocalFile(str(other))])
+        ev = QDropEvent(
+            QPointF(10, 10), Qt.DropAction.CopyAction, mime,
+            Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier,
+        )
+        win.dropEvent(ev)
+        wait_loaded(app, win, other)
+    finally:
+        _mw.QMessageBox = _real_box
+    assert asked, "dropping a second file did not ask for confirmation"
     assert win.info is not None and win.info.path == str(other), \
         f"drop did not load {other}: {win.info and win.info.path}"
     assert win.cut_label.text() == "", "cut label not reset after drop"
