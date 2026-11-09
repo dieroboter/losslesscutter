@@ -203,6 +203,7 @@ class VideoCutter:
         self.video_settings = video_settings
 
         self.enc_codec = None
+        self._source_interlaced: bool | None = None
 
         self.in_stream = cast(VideoStream, media_container.video_stream)
         # Assert time_base is not None once at initialization
@@ -453,6 +454,27 @@ class VideoCutter:
         elif self.typical_frame_duration is not None:
             packet.duration = self.typical_frame_duration
 
+    def _probe_source_interlaced(self) -> bool:
+        """Whether the source video is interlaced, from its first
+        decodable frame. The encoder flags in _ensure_enc_codec need
+        this before the first recode runs. PyAV does not expose the
+        stream's field order, but decoded frames carry
+        interlaced_frame, so probe with a throwaway container (the
+        cutter's own input container keeps its position)."""
+        if self._source_interlaced is None:
+            self._source_interlaced = False
+            try:
+                with av.open(self.media_container.path, 'r',
+                             metadata_errors='ignore') as probe:
+                    stream = next(s for s in probe.streams
+                                  if s.type == 'video')
+                    for frame in probe.decode(stream):
+                        self._source_interlaced = bool(frame.interlaced_frame)
+                        break
+            except Exception:
+                self._source_interlaced = False
+        return self._source_interlaced
+
     def _ensure_enc_codec(self) -> None:
         """Initialize enc_codec if not already set."""
         if self.enc_codec is not None:
@@ -490,6 +512,21 @@ class VideoCutter:
             enc_codec.bit_rate_tolerance = muxing_codec.bit_rate_tolerance
         enc_codec.codec_tag = muxing_codec.codec_tag
         enc_codec.thread_type = "FRAME"
+        if self.codec_name in ('mpeg2video', 'mpeg4') \
+                and self._probe_source_interlaced():
+            # Interlaced source: without this flag the encoder
+            # writes the recoded cut-point frames as progressive
+            # pictures even though their content is two fields, so
+            # players show them un-deinterlaced (visible combing)
+            # while the copied frames around them are flagged
+            # correctly. AV_CODEC_FLAG_INTERLACED_DCT makes the
+            # encoder honour each frame's interlaced /
+            # top-field-first properties (which the decoder already
+            # supplies) at no quality cost - measured identical MAD
+            # to the progressive encode. INTERLACED_ME must NOT be
+            # added: with frame pictures it wrecked quality in
+            # testing (MAD ~13 vs ~1-2 at q=1 on DVD material).
+            enc_codec.flags |= 1 << 18  # AV_CODEC_FLAG_INTERLACED_DCT
         self.enc_last_pts = -1
         self.enc_codec = enc_codec
 
