@@ -56,7 +56,8 @@ their quality.
 
 Keys: Space = play/pause, I = set start, O = set end, Left/Right = one
 frame, Shift+Left/Right = 10 seconds. The transport bar also has
-frame-step, GOP-step, and 10-second jump buttons.
+frame-step, GOP-step, and 10-second jump buttons. F11 toggles
+borderless fullscreen; Esc leaves it.
 
 The Go to box next to the time display jumps straight to a frame
 number or a timestamp: type or paste one (for example 1250 or 1:23.5)
@@ -67,9 +68,9 @@ sync with the picture; the Mute button and volume slider sit next to
 the Go to box. Stepping frame by frame is silent - sound is for
 playback. Exports keep all audio tracks untouched.
 
-Opening a file indexes every frame in it, which can take a few seconds
-for long files. That index is what makes the frame and GOP stepping
-exact.
+Opening a file loads it in the background, with a progress bar, and
+indexes every frame in it; for long files this can take a few seconds.
+That index is what makes the frame and GOP stepping exact.
 
 ## Building from source (Windows)
 
@@ -92,8 +93,10 @@ cutting engine relies on.
 
 Tests: install ffmpeg and put it on the PATH, generate the test media with
 `tools\make_test_media.sh` (a shell script — run it in Git Bash or WSL),
-then run `tests\test_engine_integration.py` (7-codec battery) and
-`tests\test_gui_smoke.py` (offscreen GUI end-to-end) with the venv active.
+then, with the venv active, run the suites in `tests\` —
+`test_engine_integration.py` (7-codec battery) and `test_gui_smoke.py`
+(offscreen GUI end-to-end) are the core ones; the rest are focused
+regression tests.
 
 The portable zip attached to the release is assembled by
 `build_portable.py`, which runs on Linux: it packs the CPython 3.12
@@ -101,14 +104,21 @@ embeddable package and win_amd64 wheels from `build-cache\` and
 cross-compiles the small C launcher (`launcher.c`) with mingw-w64.
 An Inno Setup script (`losslesscutter.iss`, Inno Setup 6) is included for
 wrapping the assembled portable folder in an installer on Windows.
+On Windows, `make_release.ps1` produces a release directly: it assembles
+`dist\LosslessCutter` (downloading the v1.1 portable zip once as a binary
+skeleton if that folder is missing, then swapping in the current source)
+and emits `LosslessCutter-<version>-portable.zip` and
+`LosslessCutter-<version>-setup.exe`, taking the version from
+`src\losslesscutter\__init__.py`.
 
 ## Credits and license
 
 The cutting engine in `src/smartcut/` is a fork of
 [smartcut](https://github.com/skeskinen/smartcut) by Santtu Keskinen
 (MIT, see `src/smartcut/LICENSE.txt`), with fixes for audio passthrough,
-open-GOP trailing B-frames, zero-duration final packets, and lossless
-encoder settings.
+open-GOP trailing B-frames, zero-duration final packets, lossless
+encoder settings, files that begin mid-GOP, open-GOP boundary cuts, and
+interlaced MPEG-2/MPEG-4 re-encodes.
 
 LosslessCutter itself is MIT licensed (see `LICENSE`).
 
