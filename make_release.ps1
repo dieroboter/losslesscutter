@@ -5,11 +5,13 @@
 #   powershell -ExecutionPolicy Bypass -File .\make_release.ps1
 #
 # If dist\LosslessCutter does not exist yet, it is built first, the
-# same way as the manual builds: the v1.1 release portable zip is the
-# binary skeleton (downloaded once into build-cache), the current
-# src\ code is swapped into it, and the unused PySide6-Addons modules
-# are pruned (same rules as build_portable.py). Delete
-# dist\LosslessCutter to force a fresh skeleton build.
+# same way as the manual builds: the portable zip of the latest
+# published release is the binary skeleton (looked up on GitHub at
+# build time, downloaded once into build-cache; if the lookup fails,
+# the v1.1 zip is used instead), the current src\ code is swapped
+# into it, and the unused PySide6-Addons modules are pruned (same
+# rules as build_portable.py). Delete dist\LosslessCutter to force
+# a fresh skeleton build.
 #
 # Outputs:
 #   LosslessCutter-<version>-portable.zip  (repo root)
@@ -57,18 +59,34 @@ if (-not (Test-Path $icon)) {
     }
 }
 
-# --- build dist\LosslessCutter from the v1.1 skeleton if needed ---
+# --- build dist\LosslessCutter from a release skeleton if needed ---
+# The skeleton is the portable zip of the latest published release
+# (its binary runtime is reused; its app code is swapped out below).
+# It can never be the release being built - that one does not exist
+# yet. If the lookup fails, fall back to the pinned v1.1 zip.
 $dist = Join-Path $root "dist\LosslessCutter"
 if (-not (Test-Path (Join-Path $dist "LosslessCutter.exe"))) {
-    Write-Host "dist\LosslessCutter not found - building it from the v1.1 skeleton..."
+    $skelTag = "v1.1"
+    try {
+        [Net.ServicePointManager]::SecurityProtocol =
+            [Net.ServicePointManager]::SecurityProtocol -bor
+            [Net.SecurityProtocolType]::Tls12
+        $latest = Invoke-RestMethod "https://api.github.com/repos/dieroboter/losslesscutter/releases/latest" -Headers @{ "User-Agent" = "LosslessCutter-make-release" }
+        if ($latest.tag_name) { $skelTag = $latest.tag_name }
+    } catch {
+        Write-Host "Latest-release lookup failed - falling back to the $skelTag skeleton."
+    }
+    $skelVer = $skelTag -replace '^v', ''
+    Write-Host "dist\LosslessCutter not found - building it from the $skelTag skeleton..."
 
     $cacheDir = Join-Path $root "build-cache"
     if (-not (Test-Path $cacheDir)) { New-Item -ItemType Directory $cacheDir | Out-Null }
-    $skel = Join-Path $cacheDir "LosslessCutter-1.1-portable.zip"
+    $skel = Join-Path $cacheDir "LosslessCutter-$skelVer-portable.zip"
     if (-not (Test-Path $skel)) {
-        Write-Host "Downloading the v1.1 portable skeleton (174 MB, one time)..."
-        & curl.exe -L -o $skel "https://github.com/dieroboter/losslesscutter/releases/download/v1.1/LosslessCutter-1.1-portable.zip"
-        if ($LASTEXITCODE -ne 0) { Fail "skeleton download failed." }
+        $skelUrl = "https://github.com/dieroboter/losslesscutter/releases/download/$skelTag/LosslessCutter-$skelVer-portable.zip"
+        Write-Host "Downloading the $skelTag portable skeleton (one time)..."
+        & curl.exe -L -f -o $skel $skelUrl
+        if ($LASTEXITCODE -ne 0) { Fail "skeleton download failed: $skelUrl" }
     }
 
     $distParent = Join-Path $root "dist"

@@ -105,8 +105,9 @@ cross-compiles the small C launcher (`launcher.c`) with mingw-w64.
 An Inno Setup script (`losslesscutter.iss`, Inno Setup 6) is included for
 wrapping the assembled portable folder in an installer on Windows.
 On Windows, `make_release.ps1` produces a release directly: it assembles
-`dist\LosslessCutter` (downloading the v1.1 portable zip once as a binary
-skeleton if that folder is missing, then swapping in the current source)
+`dist\LosslessCutter` (downloading the latest release's portable zip once
+as a binary skeleton if that folder is missing, then swapping in the
+current source)
 and emits `LosslessCutter-<version>-portable.zip` and
 `LosslessCutter-<version>-setup.exe`, taking the version from
 `src\losslesscutter\__init__.py`.
