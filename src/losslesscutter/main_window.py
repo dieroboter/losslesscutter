@@ -965,6 +965,13 @@ class MainWindow(QMainWindow):
         if os.path.abspath(out_path) == os.path.abspath(self.info.path):
             QMessageBox.critical(self, "Save", "Output cannot overwrite the input file.")
             return
+        if os.path.exists(out_path):
+            QMessageBox.warning(
+                self, "Save",
+                f"{os.path.basename(out_path)} already exists. "
+                "Rename the export first. "
+                "The existing file will not be overwritten.")
+            return
         mode = self.mode_combo.currentData()
         segments = positive_segments(self.mc, self.selections, mode)
         if not segments:
