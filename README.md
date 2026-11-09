@@ -2,7 +2,7 @@
 
 A lossless video cutting app for Windows, and nothing else. It smart-cuts:
 everything between cut points is copied bit-identical, and only the small
-parts at the cut points are re-encoded — always at the highest quality the
+parts at the cut points are re-encoded, always at the highest quality the
 codec offers. There is no full re-encode mode anywhere in the app.
 If a file cannot be smart-cut, the export fails with an explanation
 instead of re-encoding your file.
@@ -92,8 +92,8 @@ PyAV is pinned to 16.0.1 on purpose: newer PyAV versions changed APIs the
 cutting engine relies on.
 
 Tests: install ffmpeg and put it on the PATH, generate the test media with
-`tools\make_test_media.sh` (a shell script — run it in Git Bash or WSL),
-then, with the venv active, run the suites in `tests\` —
+`tools\make_test_media.sh` (a shell script; run it in Git Bash or WSL),
+then, with the venv active, run the suites in `tests\`:
 `test_engine_integration.py` (7-codec battery) and `test_gui_smoke.py`
 (offscreen GUI end-to-end) are the core ones; the rest are focused
 regression tests.
