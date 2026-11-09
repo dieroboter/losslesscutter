@@ -11,7 +11,9 @@
 # the v1.1 zip is used instead), the current src\ code is swapped
 # into it, and the unused PySide6-Addons modules are pruned (same
 # rules as build_portable.py). Delete dist\LosslessCutter to force
-# a fresh skeleton build.
+# a fresh skeleton build. The code swap and the prune run on every
+# invocation, including when the folder already existed, so a build
+# never packages stale code.
 #
 # Outputs:
 #   LosslessCutter-<version>-portable.zip  (repo root)
@@ -97,8 +99,12 @@ if (-not (Test-Path (Join-Path $dist "LosslessCutter.exe"))) {
     if (-not (Test-Path (Join-Path $dist "LosslessCutter.exe"))) {
         Fail "skeleton extracted but dist\LosslessCutter\LosslessCutter.exe is missing."
     }
+}
 
-    # Swap in the current code (both packages).
+# Swap in the current code (both packages). This runs on EVERY
+# build, not only on a fresh skeleton build: reusing an existing
+# dist\ without swapping would package whatever code the folder
+# already held under the new version's name.
     foreach ($pkg in @("losslesscutter", "smartcut")) {
         $target = Join-Path $dist "app\$pkg"
         if (Test-Path $target) { Remove-Item $target -Recurse -Force }
@@ -106,7 +112,7 @@ if (-not (Test-Path (Join-Path $dist "LosslessCutter.exe"))) {
         Get-ChildItem $target -Recurse -Directory -Filter "__pycache__" |
             Remove-Item -Recurse -Force
     }
-    Write-Host "Current src code swapped into the skeleton."
+    Write-Host "Current src code swapped in."
 
     # Prune the unused PySide6-Addons modules (same rules as
     # build_portable.py: only QtMultimedia and friends are kept).
@@ -155,8 +161,7 @@ if (-not (Test-Path (Join-Path $dist "LosslessCutter.exe"))) {
         Where-Object { -not (Get-ChildItem $_.FullName -Force) } |
         Remove-Item -Force
     Write-Host "Addons pruned: $dropped files dropped."
-    Write-Host "dist\LosslessCutter built."
-}
+    Write-Host "dist\LosslessCutter ready."
 
 # --- portable zip (the LosslessCutter folder at the zip root) ---
 $zip = Join-Path $root "LosslessCutter-$ver-portable.zip"
