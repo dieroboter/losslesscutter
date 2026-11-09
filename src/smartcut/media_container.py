@@ -55,6 +55,7 @@ class MediaContainer:
     gop_start_nal_types: list[int | None]  # NAL type of first picture frame after each GOP boundary
     gop_leading_end_dts: list[int | None]  # DTS of first non-leading picture in GOP (None if no leading pics)
     gop_has_rasl: list[bool]  # True if GOP has RASL frames (need priming/hybrid recode)
+    gop_has_leading_pictures: list[bool]  # True if GOP's presentation span starts before its keyframe's pts (open GOP)
 
     audio_tracks: list[AudioTrack]
     subtitle_tracks: list
@@ -132,6 +133,7 @@ class MediaContainer:
         self.gop_start_nal_types = []
         self.gop_leading_end_dts = []
         self.gop_has_rasl = []
+        self.gop_has_leading_pictures = []
         last_seen_video_dts = None
         # Track leading pictures in current CRA GOP
         tracking_leading_in_cra = False
@@ -304,6 +306,18 @@ class MediaContainer:
             if self.video_stream is not None and self.video_stream.time_base is not None:
                 self.video_frame_times = results[result_idx]
                 self.gop_start_times_pts_s = list(self.video_frame_times[self.video_keyframe_indices])
+                # A GOP whose presentation span starts before its
+                # keyframe's own pts has leading pictures: frames
+                # presented before the keyframe but decoded after it,
+                # referencing the previous GOP (open GOPs - typical
+                # PAL DVD and broadcast material). The span start
+                # above is the first leading picture's time; compare
+                # it with the keyframe packets' own pts (frame_pts
+                # is in decode order, like the keyframe indices).
+                kf_pts_times = [Fraction(frame_pts[i]) * self.video_stream.time_base
+                                for i in self.video_keyframe_indices]
+                self.gop_has_leading_pictures = [
+                    k > s for k, s in zip(kf_pts_times, self.gop_start_times_pts_s)]
                 result_idx += 1
             for t in self.audio_tracks:
                 if t.av_stream.time_base is not None:

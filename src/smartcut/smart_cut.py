@@ -84,7 +84,18 @@ def make_cut_segments(media_container: MediaContainer,
         if p == len(positive_segments) or o <= positive_segments[p][0]:
             pass
         elif keyframe_mode or (i >= positive_segments[p][0] and o <= positive_segments[p][1]):
-            cut_segments.append(CutSegment(False, i, o, i_dts, o_dts, gop_idx))
+            # A keep range that starts exactly at an open GOP's span
+            # start cannot copy that GOP: its leading pictures are
+            # presented first but reference the previous GOP, which
+            # is not in the output, so decoders silently drop them
+            # and the cut lands that many frames late. Recode the
+            # segment instead - the recode path primes the decoder
+            # from the previous GOP and reproduces them exactly.
+            recode = (not keyframe_mode
+                      and i == positive_segments[p][0]
+                      and gop_idx < len(media_container.gop_has_leading_pictures)
+                      and media_container.gop_has_leading_pictures[gop_idx])
+            cut_segments.append(CutSegment(recode, i, o, i_dts, o_dts, gop_idx))
         else:
             if i > positive_segments[p][0]:
                 cut_segments.append(CutSegment(True, i, positive_segments[p][1], i_dts, o_dts, gop_idx))
