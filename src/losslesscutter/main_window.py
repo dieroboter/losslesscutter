@@ -68,6 +68,7 @@ class MainWindow(QMainWindow):
         self.info = None
         self.mc = None
         self._player = None
+        self._current_image = None   # last frame shown, unscaled
         self.current_frame = 0
         self.mark_in: int | None = None
         self.mark_out: int | None = None
@@ -139,6 +140,11 @@ class MainWindow(QMainWindow):
         # the layout as a minimum size for the preview.
         self.preview.setSizePolicy(QSizePolicy.Policy.Ignored,
                                    QSizePolicy.Policy.Ignored)
+        # When layout space is taken by text appearing below (the
+        # cut-plan line), the preview shrinks without the window
+        # resizing; the event filter rescales the picture to match
+        # (see _fit_preview_pixmap).
+        self.preview.installEventFilter(self)
         root.addWidget(self.preview, 1)
 
         # Everything under the preview lives on an opaque panel.
@@ -499,17 +505,34 @@ class MainWindow(QMainWindow):
         image = self.player.get_frame(index)
         self.current_frame = index
         if image is not None:
-            pix = QPixmap.fromImage(image)
-            scaled = pix.scaled(
-                self.preview.size(), Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation,
-            )
-            self.preview.setPixmap(scaled)
+            self._current_image = image
+            self._fit_preview_pixmap()
         self.slider.blockSignals(True)
         self.slider.setValue(index)
         self.slider.blockSignals(False)
         t = frame_time(self.mc, index)
         self.time_label.setText(f"{format_timecode(t)}   Frame {index} / {self.info.frame_count - 1}")
+
+    def _fit_preview_pixmap(self) -> None:
+        """Scale the current frame into the preview's current size.
+
+        The preview's size changes not only when the window resizes:
+        when the cut-plan text appears below it, the layout takes the
+        space from the preview. Without a rescale at that moment the
+        label keeps painting the old, taller pixmap centered, and
+        the top (and bottom) of the picture is clipped. Rescaling
+        from the stored unscaled image keeps the whole frame visible
+        at whatever size the preview currently has.
+        """
+        if self._current_image is None:
+            return
+        size = self.preview.size()
+        if size.width() <= 0 or size.height() <= 0:
+            return
+        pix = QPixmap.fromImage(self._current_image)
+        self.preview.setPixmap(pix.scaled(
+            size, Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation))
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
@@ -577,7 +600,18 @@ class MainWindow(QMainWindow):
         super().mousePressEvent(event)
 
     def eventFilter(self, obj, event) -> bool:
-        if (obj is self.goto_edit
+        # getattr guards: the preview's filter is installed during
+        # _build_ui, before goto_edit exists, and the preview can be
+        # resized in that window.
+        if (obj is getattr(self, "preview", None)
+                and event.type() == QEvent.Type.Resize):
+            # Layout-driven shrink/grow (e.g. the cut-plan text took
+            # or released space): refit the picture instead of
+            # clipping it. The window's own resizeEvent also lands
+            # here; refitting from the stored image is cheap and the
+            # subsequent show_frame keeps everything in sync.
+            self._fit_preview_pixmap()
+        if (obj is getattr(self, "goto_edit", None)
                 and event.type() == QEvent.Type.KeyPress
                 and event.key() == Qt.Key.Key_Escape):
             self.goto_edit.clearFocus()
