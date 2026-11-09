@@ -64,6 +64,29 @@ class PcmDecoder:
         except Exception:
             pass
 
+    def _frames(self):
+        """Yield decoded frames from the current position, skipping
+        packets the decoder rejects as invalid data. Real files can
+        carry a stray corrupt audio packet (a DVD merge tool left
+        one as the very first packet of a file: valid stream, one
+        240-byte fragment). PyAV's bulk decode aborts the whole
+        track on such a packet, silencing playback entirely; other
+        decoders skip it and resync on the next frame. Any other
+        error still propagates."""
+        stream = self._stream
+        for packet in self._container.demux(stream):
+            if packet.size == 0:
+                continue
+            try:
+                frames = packet.decode()
+            except av.error.InvalidDataError:
+                continue
+            yield from frames
+        try:
+            yield from stream.codec_context.decode(None)
+        except av.error.InvalidDataError:
+            pass
+
     def read_chunks(self, start_time: float):
         """Yield PCM byte chunks starting at start_time (relative
         seconds), trimmed to sample accuracy at the head."""
@@ -78,7 +101,7 @@ class PcmDecoder:
         frame_bytes = self.channels * _BYTES_PER_SAMPLE
         drop = 0          # samples still to trim from the head
         armed = False     # drop computed from the first kept frame
-        for frame in self._container.decode(stream):
+        for frame in self._frames():
             if frame.pts is not None:
                 f_start = float(frame.pts * tb) - self.start_offset
                 f_dur = frame.samples / frame.sample_rate
