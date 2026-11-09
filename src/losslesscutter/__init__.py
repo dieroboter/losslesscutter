@@ -5,4 +5,4 @@ bit-identical; only the small segments at cut points are re-encoded, at the
 quality the user picks (default: matched to the source).
 """
 
-__version__ = "1.2"
+__version__ = "1.3"
