@@ -486,6 +486,18 @@ class VideoCutter:
         if muxing_codec.rate is not None:
             enc_codec.rate = muxing_codec.rate
         enc_codec.options.update(self.encoding_options)
+        if 'q' in self.encoding_options:
+            # The 'q' options entry alone does not put the MPEG-2 /
+            # MPEG-4 encoder into fixed-quantizer mode under PyAV:
+            # the encoder stays in bitrate mode at whatever bitrate
+            # the context happens to carry (the 200 kb/s factory
+            # default when the source stream declares none), and the
+            # recode comes out visibly blockier than the source -
+            # measured on a DVD cut, the head I-frame was 23 KB at
+            # 40 dB where a true q=1 encode gives 72 KB at 45 dB.
+            # The context's qscale flag is what actually engages
+            # fixed-quantizer mode; the 'q' value then applies.
+            enc_codec.qscale = True
 
         # Leaving this here for future consideration: manually setting the bframe count seems to make sense in principle.
         # But atleast in the test suite, it seemed to cause more issues that in solves.
