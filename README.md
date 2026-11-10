@@ -68,6 +68,12 @@ sync with the picture; the Mute button and volume slider sit next to
 the Go to box. Stepping frame by frame is silent - sound is for
 playback. Exports keep all audio tracks untouched.
 
+Interlaced files are previewed the way players show them: playback
+deinterlaces at double rate, each field as its own picture, while
+paused or stepping shows the frame's first field on its own. This is
+display only; frame numbers, marks and cuts always refer to the
+source frames, and exports are unaffected.
+
 Opening a file loads it in the background, with a progress bar, and
 indexes every frame in it; for long files this can take a few seconds.
 That index is what makes the frame and GOP stepping exact.

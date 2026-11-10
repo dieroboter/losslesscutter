@@ -74,6 +74,7 @@ class MainWindow(QMainWindow):
         self.mark_out: int | None = None
         self.selections: list[tuple[int, int]] = []
         self._playing = False
+        self._display_key = None   # (frame, field) last shown in playback
         self._thread: QThread | None = None
         self._worker: ExportWorker | None = None
         self._update_thread: QThread | None = None
@@ -509,11 +510,18 @@ class MainWindow(QMainWindow):
         event.ignore()
 
     # ------------------------------------------------------------- playback
-    def show_frame(self, index: int) -> None:
+    def show_frame(self, index: int, field: int | None = None) -> None:
         if self.info is None or self.mc is None:
             return
         index = max(0, min(index, self.info.frame_count - 1))
-        image = self.player.get_frame(index)
+        if field is not None:
+            # Playback of interlaced video: the double-rate
+            # deinterlaced picture for this field of the frame.
+            image = self.player.get_frame_2x(index, field)
+            if image is None:
+                image = self.player.get_frame_display(index)
+        else:
+            image = self.player.get_frame_display(index)
         self.current_frame = index
         if image is not None:
             self._current_image = image
@@ -739,6 +747,7 @@ class MainWindow(QMainWindow):
             self._stop_play()
         else:
             self._playing = True
+            self._display_key = None
             self.play_btn.setText("Pause")
             if self.info.has_audio and self._setup_audio():
                 # Audio-clocked: the player's position signals drive
@@ -766,6 +775,22 @@ class MainWindow(QMainWindow):
         self._audio_stop_cmd.emit()
         self._play_timer.stop()
         self.play_btn.setText("Play")
+        if self.info is not None and self.player.is_interlaced:
+            # Playback showed double-rate deinterlaced pictures; the
+            # paused view is the frame's first field only.
+            self._display_key = None
+            self.show_frame(self.current_frame)
+
+    def _field_at(self, index: int, seconds: float) -> int:
+        """Which field of frame `index` is on screen at `seconds`:
+        the first field for the first half of the frame's interval,
+        the second field for the rest."""
+        times = self._frame_times
+        if index + 1 < len(times):
+            mid = (times[index] + times[index + 1]) / 2.0
+        else:
+            mid = times[index] + 0.5 / max(1.0, float(self.info.fps))
+        return 1 if seconds >= mid else 0
 
     # ------------------------------------------------------------ audio in
     def _on_audio_position(self, seconds: float) -> None:
@@ -776,7 +801,12 @@ class MainWindow(QMainWindow):
             return
         idx = bisect_right(self._frame_times, seconds) - 1
         idx = max(0, min(idx, self.info.frame_count - 1))
-        if idx != self.current_frame:
+        if self.player.is_interlaced:
+            key = (idx, self._field_at(idx, seconds))
+            if key != self._display_key:
+                self._display_key = key
+                self.show_frame(idx, field=key[1])
+        elif idx != self.current_frame:
             self.show_frame(idx)
 
     def _on_audio_finished(self) -> None:
@@ -836,13 +866,25 @@ class MainWindow(QMainWindow):
             return
         idx = bisect_right(self._frame_times, target) - 1
         idx = max(0, min(idx, self.info.frame_count - 1))
-        if idx != self.current_frame:
+        if self.player.is_interlaced:
+            key = (idx, self._field_at(idx, target))
+            if key != self._display_key:
+                self._display_key = key
+                self.show_frame(idx, field=key[1])
+        elif idx != self.current_frame:
             self.show_frame(idx)
         nxt = idx + 1
         if nxt >= self.info.frame_count:
             self._play_timer.start(50)  # ride out the last frame's duration
             return
-        delay_ms = max(1, int((self._frame_times[nxt] - target) * 1000))
+        if self.player.is_interlaced and self._display_key is not None \
+                and self._display_key[1] == 0:
+            # The next display change is the second field, halfway
+            # through this frame's interval.
+            next_t = (self._frame_times[idx] + self._frame_times[nxt]) / 2.0
+        else:
+            next_t = self._frame_times[nxt]
+        delay_ms = max(1, int((next_t - target) * 1000))
         self._play_timer.start(delay_ms)
 
     # --------------------------------------------------------------- marks
