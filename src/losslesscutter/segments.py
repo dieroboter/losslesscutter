@@ -100,24 +100,31 @@ def removed_ranges(frame_count: int, selections: list[tuple[int, int]], mode: st
     return out
 
 
-def describe_cut(frame_count: int, selections: list[tuple[int, int]], mode: str) -> str:
+def describe_cut(frame_count: int, selections: list[tuple[int, int]], mode: str,
+                 scale: int = 1) -> str:
     """Plain-language summary of what is cut, e.g.
-    'Cutting the first 25 frames (0-24) and the last 174 frames (137-310).'"""
+    'Cutting the first 25 frames (0-24) and the last 174 frames (137-310).'
+
+    `scale` renders the numbers in the UI's display numbering: 2 for
+    interlaced files, whose counter counts pictures (fields), so a
+    source range a-b is shown as pictures a*2 to b*2+1 and counts
+    double too."""
     ranges = removed_ranges(frame_count, selections, mode)
     if not ranges:
         return "Nothing is being cut."
     parts = []
     for a, b in ranges:
-        n = b - a + 1
+        n = (b - a + 1) * scale
+        da, db = a * scale, b * scale + scale - 1
         word = "frame" if n == 1 else "frames"
         if a == 0 and b == frame_count - 1:
-            parts.append(f"the whole file (frames {a}-{b})")
+            parts.append(f"the whole file (frames {da}-{db})")
         elif a == 0:
-            parts.append(f"the first {n} {word} ({a}-{b})")
+            parts.append(f"the first {n} {word} ({da}-{db})")
         elif b == frame_count - 1:
-            parts.append(f"the last {n} {word} ({a}-{b})")
+            parts.append(f"the last {n} {word} ({da}-{db})")
         else:
-            parts.append(f"{n} {word} in the middle ({a}-{b})")
+            parts.append(f"{n} {word} in the middle ({da}-{db})")
     if len(parts) == 1:
         joined = parts[0]
     elif len(parts) == 2:

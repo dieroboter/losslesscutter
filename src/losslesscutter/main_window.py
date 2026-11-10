@@ -927,11 +927,21 @@ class MainWindow(QMainWindow):
         self.mark_out = self.current_frame
         self._update_marks_label()
 
+    def _num_scale(self) -> int:
+        """Display multiplier for frame numbers: 2 on interlaced
+        files, whose counter and Go to count pictures (fields) to
+        match players like MPC-HC, else 1. Every frame number the
+        UI prints goes through this so the surfaces agree."""
+        if self.player is not None and self.player.is_interlaced:
+            return 2
+        return 1
+
     def _update_marks_label(self) -> None:
+        scale = self._num_scale()
         def fmt(v):
             if v is None or self.mc is None:
                 return "-"
-            return f"{format_timecode(frame_time(self.mc, v))} (frame {v})"
+            return f"{format_timecode(frame_time(self.mc, v))} (frame {v * scale})"
         self.marks_label.setText(f"Start: {fmt(self.mark_in)}    End: {fmt(self.mark_out)}")
 
     def add_selection(self) -> None:
@@ -942,9 +952,10 @@ class MainWindow(QMainWindow):
             return
         a, b = sorted((self.mark_in, self.mark_out))
         self.selections.append((a, b))
+        scale = self._num_scale()
         self.sel_list.addItem(
             f"{format_timecode(frame_time(self.mc, a))} - {format_timecode(frame_end_time(self.mc, b))}"
-            f"   (frames {a}-{b})"
+            f"   (frames {a * scale}-{b * scale + scale - 1})"
         )
         self._update_plan()
 
@@ -970,7 +981,8 @@ class MainWindow(QMainWindow):
             self._set_cut_text("")
             return
         mode = self.mode_combo.currentData()
-        cut_text = describe_cut(self.info.frame_count, self.selections, mode)
+        cut_text = describe_cut(self.info.frame_count, self.selections, mode,
+                                self._num_scale())
         self._set_cut_text(cut_text)
         try:
             from smartcut.smart_cut import (
@@ -1001,6 +1013,9 @@ class MainWindow(QMainWindow):
                     end += n
                 else:
                     middle += n
+            scale = self._num_scale()
+            kept, start, end, middle, whole = (
+                v * scale for v in (kept, start, end, middle, whole))
             if whole and not (start or end or middle):
                 text = (f"Plan: {cut_text} Keeping {kept} frames. "
                         f"All {whole} kept frames will be re-encoded (at lossless quality): "
@@ -1104,14 +1119,15 @@ class MainWindow(QMainWindow):
         self.save_btn.setEnabled(True)
         self.cancel_btn.setEnabled(False)
         cut_text = ""
+        scale = self._num_scale()
         if self.info is not None and self.selections:
             cut_text = describe_cut(
                 self.info.frame_count, self.selections,
-                self.mode_combo.currentData()) + " "
+                self.mode_combo.currentData(), scale) + " "
             self._set_cut_text(cut_text.strip())
-        kept = stats.get("frames_kept_approx", 0)
-        recoded = stats.get("frames_recoded_approx", 0)
-        whole = stats.get("frames_recoded_whole", 0)
+        kept = stats.get("frames_kept_approx", 0) * scale
+        recoded = stats.get("frames_recoded_approx", 0) * scale
+        whole = stats.get("frames_recoded_whole", 0) * scale
         if whole and recoded >= kept and kept > 0:
             self.status_label.setText(
                 f"Done: {out_path}   {cut_text}All {kept} kept frames were re-encoded "
@@ -1119,9 +1135,9 @@ class MainWindow(QMainWindow):
                 f"of the source, so there was nothing that could be copied."
             )
         else:
-            start = stats.get("frames_recoded_start", 0)
-            end = stats.get("frames_recoded_end", 0)
-            middle = stats.get("frames_recoded_middle", 0)
+            start = stats.get("frames_recoded_start", 0) * scale
+            end = stats.get("frames_recoded_end", 0) * scale
+            middle = stats.get("frames_recoded_middle", 0) * scale
             copied = max(0, kept - recoded)
             parts = [f"{start} frames re-encoded at the beginning", f"{end} at the end"]
             if middle:

@@ -241,6 +241,22 @@ def main():
     assert win.current_frame == 50, win.current_frame
     assert "Frame 100 / 149" in win.time_label.text(), win.time_label.text()
     print("gui: picture numbering OK")
+
+    # The selection surfaces use the same numbering: marks at
+    # source frames 25 and 49 display as pictures 50 and 98, the
+    # list entry as frames 50-99, and the plan text counts pictures.
+    win.mark_in, win.mark_out = 25, 49
+    win._update_marks_label()
+    assert "(frame 50)" in win.marks_label.text(), win.marks_label.text()
+    assert "(frame 98)" in win.marks_label.text(), win.marks_label.text()
+    win.add_selection()
+    item = win.sel_list.item(0).text()
+    assert "(frames 50-99)" in item, item
+    assert "Cutting the first 50 frames (0-49)" in win.cut_label.text(), \
+        win.cut_label.text()
+    assert "Keeping 50 frames" in win.status_label.text(), \
+        win.status_label.text()
+    print("gui: selection numbering OK")
     win.close()
 
     # Progressive files keep source-frame numbering throughout.
@@ -261,6 +277,10 @@ def main():
     win._on_goto()
     assert win.current_frame == 30, win.current_frame
     assert "Frame 30 / 143" in win.time_label.text(), win.time_label.text()
+    win.mark_in, win.mark_out = 25, 49
+    win.add_selection()
+    item = win.sel_list.item(0).text()
+    assert "(frames 25-49)" in item, item
     print("gui: progressive numbering unchanged OK")
     win.close()
     print("gui: routing OK")
