@@ -222,6 +222,46 @@ def main():
     assert mads[0] < 0.05 and mads[1] > 0.5, \
         f"stop did not return to the field view (MADs {mads})"
     assert win.current_frame == 30, "stop moved the current frame"
+
+    # Picture numbering on interlaced files (his pick: match MPC-HC
+    # everywhere). The fixture has 75 frames = pictures 0..149.
+    assert "Frame 60 / 149" in win.time_label.text(), win.time_label.text()
+    win.show_frame(30, field=1)
+    assert "Frame 61 / 149" in win.time_label.text(), win.time_label.text()
+    win.goto_edit.setText("101")
+    win._on_goto()
+    assert win.current_frame == 50, win.current_frame
+    assert "Frame 100 / 149" in win.time_label.text(), win.time_label.text()
+    win.goto_edit.setText("150")
+    win._on_goto()
+    assert win.current_frame == 50, "out-of-range picture was accepted"
+    assert "picture 150" in win.status_label.text(), win.status_label.text()
+    win.goto_edit.setText("0:02")
+    win._on_goto()
+    assert win.current_frame == 50, win.current_frame
+    assert "Frame 100 / 149" in win.time_label.text(), win.time_label.text()
+    print("gui: picture numbering OK")
+    win.close()
+
+    # Progressive files keep source-frame numbering throughout.
+    win = MainWindow()
+    win.show()
+    app.processEvents()
+    prog_path = str(PROG)
+    win.load_file(prog_path)
+    deadline = time.monotonic() + 60
+    while time.monotonic() < deadline:
+        app.processEvents()
+        if win._load_thread is None and win.info is not None \
+                and win.info.path == prog_path:
+            break
+    assert win.info is not None and win.info.path == prog_path
+    assert "Frame 0 / 143" in win.time_label.text(), win.time_label.text()
+    win.goto_edit.setText("30")
+    win._on_goto()
+    assert win.current_frame == 30, win.current_frame
+    assert "Frame 30 / 143" in win.time_label.text(), win.time_label.text()
+    print("gui: progressive numbering unchanged OK")
     win.close()
     print("gui: routing OK")
 

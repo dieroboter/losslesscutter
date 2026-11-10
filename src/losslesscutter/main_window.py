@@ -530,7 +530,18 @@ class MainWindow(QMainWindow):
         self.slider.setValue(index)
         self.slider.blockSignals(False)
         t = frame_time(self.mc, index)
-        self.time_label.setText(f"{format_timecode(t)}   Frame {index} / {self.info.frame_count - 1}")
+        if self.player.is_interlaced:
+            # Interlaced files count pictures (fields), matching
+            # players that deinterlace (e.g. MPC-HC): frame 500 of a
+            # 25i file is pictures 1000 and 1001.
+            picture = 2 * index + (field or 0)
+            self.time_label.setText(
+                f"{format_timecode(t)}   Frame {picture} / "
+                f"{2 * self.info.frame_count - 1}")
+        else:
+            self.time_label.setText(
+                f"{format_timecode(t)}   Frame {index} / "
+                f"{self.info.frame_count - 1}")
 
     def _fit_preview_pixmap(self) -> None:
         """Scale the current frame into the preview's current size.
@@ -598,8 +609,24 @@ class MainWindow(QMainWindow):
         if self.info is None:
             return
         target = None
+        s = self.goto_edit.text().strip()
+        if (self.player.is_interlaced and s.lstrip("+-").isdigit()
+                and int(s) >= 0):
+            # On an interlaced file a bare number is a picture
+            # (field) number, matching players that deinterlace,
+            # e.g. MPC-HC: picture 1000 of a 25i file is its frame
+            # 500, at 20 seconds, not 40.
+            picture = int(s)
+            if picture > 2 * self.info.frame_count - 1:
+                self.status_label.setText(
+                    f"There is no picture {picture} - this file's "
+                    f"pictures run from 0 to "
+                    f"{2 * self.info.frame_count - 1}.")
+                self.goto_edit.selectAll()
+                return
+            target = picture // 2
         seconds = timestamp_seconds(self.goto_edit.text())
-        if seconds is not None and self._frame_times:
+        if target is None and seconds is not None and self._frame_times:
             # Land on the frame starting at that time, or the first
             # frame after it when none starts exactly there (his
             # chosen rule for time jumps). Frame-rate multiplication
@@ -607,7 +634,7 @@ class MainWindow(QMainWindow):
             target = max(0, min(
                 bisect_left(self._frame_times, seconds),
                 self.info.frame_count - 1))
-        else:
+        elif target is None:
             target = parse_goto(
                 self.goto_edit.text(), self.info.fps, self.info.frame_count)
         if target is None:
