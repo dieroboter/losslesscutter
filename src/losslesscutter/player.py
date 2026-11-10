@@ -11,6 +11,7 @@ from fractions import Fraction
 
 import av
 import numpy as np
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QImage
 
 from smartcut.media_container import MediaContainer
@@ -275,10 +276,11 @@ class PreviewPlayer:
 
     def get_frame_display(self, index: int) -> QImage | None:
         """The picture to show while paused or stepping. For an
-        interlaced frame that is its first field alone, each line
-        doubled to full height: exactly the field's own pixels at
-        half resolution, nothing woven in from the other field and
-        nothing interpolated from neighbouring frames. Progressive
+        interlaced frame that is its first field alone, scaled
+        smoothly to full height: exactly the field's own content at
+        half resolution (the intermediate lines are blends of the
+        field's own lines only), nothing woven in from the other
+        field and nothing from neighbouring frames. Progressive
         frames show as the full frame, as get_frame."""
         if self._container is None:
             return None
@@ -290,16 +292,14 @@ class PreviewPlayer:
             return self.get_frame(index)
         parity = self._detect_field_parity(frame)
         arr = frame.to_ndarray(format="rgb24")
-        doubled = np.repeat(arr[parity::2], 2, axis=0)
-        if doubled.shape[0] > arr.shape[0]:
-            doubled = doubled[:arr.shape[0]]
-        elif doubled.shape[0] < arr.shape[0]:
-            doubled = np.concatenate(
-                [doubled, doubled[-1:]], axis=0)
-        doubled = np.ascontiguousarray(doubled)
-        image = QImage(doubled.data, doubled.shape[1], doubled.shape[0],
-                       doubled.strides[0],
-                       QImage.Format.Format_RGB888).copy()
+        field_arr = np.ascontiguousarray(arr[parity::2])
+        field_img = QImage(field_arr.data, field_arr.shape[1],
+                           field_arr.shape[0], field_arr.strides[0],
+                           QImage.Format.Format_RGB888).copy()
+        image = field_img.scaled(
+            arr.shape[1], arr.shape[0],
+            Qt.AspectRatioMode.IgnoreAspectRatio,
+            Qt.TransformationMode.SmoothTransformation)
         self.current_index = index
         return image
 

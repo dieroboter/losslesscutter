@@ -67,24 +67,52 @@ def open_player(path):
     return p, mc
 
 
+def expected_field_view(woven, parity):
+    """The spec's paused picture for a frame: the field at `parity`,
+    scaled smoothly to full height (the same construction the probe
+    script uses, so a working build matches it exactly)."""
+    from PySide6.QtCore import Qt
+    from PySide6.QtGui import QImage
+    fa = np.ascontiguousarray(woven[parity::2])
+    img = QImage(fa.data, fa.shape[1], fa.shape[0], fa.strides[0],
+                 QImage.Format.Format_RGB888).copy()
+    out = img.scaled(woven.shape[1], woven.shape[0],
+                     Qt.AspectRatioMode.IgnoreAspectRatio,
+                     Qt.TransformationMode.SmoothTransformation)
+    return img_array(out)
+
+
+def view_mads(view, woven):
+    """Distance of a paused view from each parity's expected view."""
+    return tuple(
+        np.abs(view.astype(int) - expected_field_view(woven, p).astype(int)).mean()
+        for p in (0, 1))
+
+
 def check_field_view(path, parity, label):
     p, mc = open_player(path)
     try:
         woven = reference_frame(path, 30)
         assert p.is_interlaced is None or p.is_interlaced
-        view = img_array(p.get_frame_display(30))
+        view_img = p.get_frame_display(30)
+        view = img_array(view_img)
         assert p.is_interlaced is True, f"{label}: not seen as interlaced"
         assert view.shape == woven.shape, f"{label}: field view size"
-        # Exactly the first field's lines, doubled: the image's line
-        # pairs are identical, and the distinct lines are the source
-        # frame's own lines at the first field's parity, verbatim.
-        assert (view[0::2] == view[1::2]).all(), \
-            f"{label}: field view lines are not doubled pairs"
-        assert (view[0::2] == woven[parity::2]).all(), \
-            f"{label}: field view is not the pure first field"
+        # Smoothly scaled, not line doubled: adjacent lines are not
+        # locked in identical pairs.
+        pairs_equal = (view[0::2] == view[1::2]).all(axis=(1, 2)).mean()
+        assert pairs_equal < 0.5, \
+            f"{label}: field view is line doubled ({pairs_equal:.2f} pairs equal)"
+        # Pure first field: the view matches the first field's
+        # expected smooth view essentially exactly, and is far from
+        # the second field's.
+        mads = view_mads(view, woven)
+        assert mads[parity] < 0.05 and mads[1 - parity] > 10 * mads[parity] + 0.5, \
+            f"{label}: field view is not the pure first field (MADs {mads})"
         assert not (view == woven).all(), \
             f"{label}: field view equals the woven frame on moving content"
-        print(f"{label}: field view OK (first-field parity {parity})")
+        print(f"{label}: field view OK (first-field parity {parity}, "
+              f"view MADs {mads[0]:.3f}/{mads[1]:.3f})")
         return p, mc
     except Exception:
         mc.close()
@@ -177,10 +205,10 @@ def main():
         app.processEvents()
         time.sleep(0.01)
 
-    paused = img_array(win._current_image)
     w0 = reference_frame(TFF, 0)
-    assert (paused[0::2] == w0[0::2]).all() and (paused[0::2] == paused[1::2]).all(), \
-        "GUI paused view is not the field view"
+    mads = view_mads(img_array(win._current_image), w0)
+    assert mads[0] < 0.05 and mads[1] > 0.5, \
+        f"GUI paused view is not the field view (MADs {mads})"
     win.show_frame(30, field=1)
     shown = img_array(win._current_image)
     w30 = reference_frame(TFF, 30)
@@ -190,9 +218,9 @@ def main():
     assert d < 0.5 * d_prev and not (shown == w30).all(), \
         "GUI playback view is not the 2x field picture"
     win._stop_play()
-    back = img_array(win._current_image)
-    assert (back[0::2] == w30[0::2]).all() and (back[0::2] == back[1::2]).all(), \
-        "stop did not return to the field view"
+    mads = view_mads(img_array(win._current_image), w30)
+    assert mads[0] < 0.05 and mads[1] > 0.5, \
+        f"stop did not return to the field view (MADs {mads})"
     assert win.current_frame == 30, "stop moved the current frame"
     win.close()
     print("gui: routing OK")
