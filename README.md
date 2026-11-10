@@ -70,9 +70,12 @@ playback. Exports keep all audio tracks untouched.
 
 Interlaced files are previewed the way players show them: playback
 deinterlaces at double rate, each field as its own picture, while
-paused or stepping shows the frame's first field on its own. This is
-display only; frame numbers, marks and cuts always refer to the
-source frames, and exports are unaffected.
+paused or stepping shows the frame's first field on its own, scaled
+smoothly to full height. On interlaced files the frame counter and
+the Go to box count these pictures (fields), so their numbers match
+players that deinterlace, such as MPC-HC: picture 1000 of a 25i file
+is at 20 seconds, not 40. Marks and cuts still apply to whole source
+frames, and exports are unaffected.
 
 Opening a file loads it in the background, with a progress bar, and
 indexes every frame in it; for long files this can take a few seconds.
