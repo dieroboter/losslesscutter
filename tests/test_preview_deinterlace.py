@@ -243,15 +243,15 @@ def main():
     print("gui: picture numbering OK")
 
     # The selection surfaces use the same numbering: marks at
-    # source frames 25 and 49 display as pictures 50 and 98, the
-    # list entry as frames 50-99, and the plan text counts pictures.
+    # source frames 25 and 49 display as pictures 50 and 98, and
+    # the list entry ends at the out mark's own number (98, not 99).
     win.mark_in, win.mark_out = 25, 49
     win._update_marks_label()
     assert "(frame 50)" in win.marks_label.text(), win.marks_label.text()
     assert "(frame 98)" in win.marks_label.text(), win.marks_label.text()
     win.add_selection()
     item = win.sel_list.item(0).text()
-    assert "(frames 50-99)" in item, item
+    assert "(frames 50-98)" in item, item
     assert "Cutting the first 50 frames (0-49)" in win.cut_label.text(), \
         win.cut_label.text()
     assert "Keeping 50 frames" in win.status_label.text(), \

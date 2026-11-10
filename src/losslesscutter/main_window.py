@@ -953,9 +953,14 @@ class MainWindow(QMainWindow):
         a, b = sorted((self.mark_in, self.mark_out))
         self.selections.append((a, b))
         scale = self._num_scale()
+        # Both ends print the mark's own display number, exactly as
+        # the marks label and counter show them: on an interlaced
+        # file an out point set at picture 500 must read 500 here,
+        # not 501 (the source frame's second picture belongs to the
+        # frame, but the frame's number is its first picture).
         self.sel_list.addItem(
             f"{format_timecode(frame_time(self.mc, a))} - {format_timecode(frame_end_time(self.mc, b))}"
-            f"   (frames {a * scale}-{b * scale + scale - 1})"
+            f"   (frames {a * scale}-{b * scale})"
         )
         self._update_plan()
 
