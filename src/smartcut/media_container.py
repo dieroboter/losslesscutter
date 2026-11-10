@@ -139,6 +139,21 @@ class MediaContainer:
         tracking_leading_in_cra = False
         current_gop_has_leading = False
         current_gop_has_rasl = False
+        # Head-of-file orphans: a stream cut from a longer recording
+        # (or encoded with an open first GOP) can start with a GOP
+        # whose leading pictures are presented before its keyframe
+        # but reference the previous GOP, which is not in the file.
+        # No decoder can produce them - players and ffmpeg all start
+        # at the keyframe - so counting them as frames would shift
+        # every frame number and time in the file by their count.
+        # They are left out of the frame grid below. HEVC differs:
+        # only its RASL leading pictures are dropped by decoders on
+        # random access; RADL pictures decode fine and stay.
+        is_mpeg = self.video_stream is not None and \
+            self.video_stream.codec_context.name in (
+                "mpeg1video", "mpeg2video", "mpeg4")
+        first_gop = True  # no second safe keyframe seen yet
+        first_keyframe_pts = None
 
         if self._progress_cb is not None \
                 and self._progress_cb(0.0) is False:
@@ -202,6 +217,10 @@ class MediaContainer:
                         # video cutter fetching empty windows.
                         had_previous_gop = len(self.gop_start_times_dts) > 0
                         self.video_keyframe_indices.append(len(frame_pts))
+                        if len(self.video_keyframe_indices) == 1:
+                            first_keyframe_pts = packet.pts
+                        elif len(self.video_keyframe_indices) == 2:
+                            first_gop = False
                         dts = packet.dts if packet.dts is not None else -100_000_000
                         self.gop_start_times_dts.append(dts)
                         self.gop_start_nal_types.append(nal_type)
@@ -246,7 +265,17 @@ class MediaContainer:
                 if self.video_stream.time_base is not None:
                     self._last_video_pts_time = (
                         Fraction(packet.pts) * self.video_stream.time_base)
-                frame_pts.append(packet.pts)
+                orphan = False
+                if first_gop and first_keyframe_pts is not None \
+                        and not packet.is_keyframe \
+                        and packet.pts < first_keyframe_pts:
+                    if is_h265:
+                        orphan = is_rasl_nal_type(
+                            get_h265_nal_unit_type(bytes(packet)))
+                    elif is_h264 or is_mpeg:
+                        orphan = True
+                if not orphan:
+                    frame_pts.append(packet.pts)
             elif packet.stream.type == 'audio':
                 track = stream_index_to_audio_track[packet.stream_index]
                 track.last_packet = packet
