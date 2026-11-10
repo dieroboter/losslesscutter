@@ -14,7 +14,7 @@ from bisect import bisect_left, bisect_right
 from datetime import date
 from fractions import Fraction
 
-from PySide6.QtCore import QEvent, QSettings, Qt, QThread, QTimer, Signal
+from PySide6.QtCore import QEvent, QSettings, QSize, Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QIcon, QKeySequence, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QApplication, QComboBox, QFileDialog, QHBoxLayout, QLabel, QLineEdit,
@@ -540,10 +540,22 @@ class MainWindow(QMainWindow):
         size = self.preview.size()
         if size.width() <= 0 or size.height() <= 0:
             return
-        pix = QPixmap.fromImage(self._current_image)
-        self.preview.setPixmap(pix.scaled(
-            size, Qt.AspectRatioMode.KeepAspectRatio,
-            Qt.TransformationMode.SmoothTransformation))
+        # Render at the display's physical resolution. `size` is in
+        # logical pixels; on a scaled display (150% on the target
+        # laptop) the label's backing store is larger by the device
+        # pixel ratio. Scaling the frame down to the logical size and
+        # letting the window system stretch that pixmap back up when
+        # painting softens everything, most visibly crisp screen
+        # recordings. Scaling straight to the physical size and
+        # tagging the pixmap with the ratio makes the paint 1:1.
+        dpr = self.preview.devicePixelRatioF()
+        target = QSize(max(1, round(size.width() * dpr)),
+                       max(1, round(size.height() * dpr)))
+        pix = QPixmap.fromImage(self._current_image).scaled(
+            target, Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation)
+        pix.setDevicePixelRatio(dpr)
+        self.preview.setPixmap(pix)
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
