@@ -21,6 +21,7 @@ class PreviewPlayer:
     def __init__(self) -> None:
         self._container = None
         self._stream = None
+        self._sar = None
         self._path: str | None = None
         self._mc: MediaContainer | None = None
         self._pts_to_index: dict[int, int] = {}
@@ -55,6 +56,7 @@ class PreviewPlayer:
         self._reset_display_state()
 
     def _reset_display_state(self) -> None:
+        self._sar = None
         self._raw_index = -1
         self._raw_frame = None
         self._interlaced = None
@@ -121,11 +123,49 @@ class PreviewPlayer:
         self._decoder = self._container.decode(self._stream)
         self._next_index = 0
 
-    @staticmethod
-    def _to_image(frame) -> QImage:
+    def _display_sar(self) -> float:
+        """The video stream's sample aspect ratio (1.0 for square
+        pixels), cached per open file. Anamorphic sources (720x576
+        flagged 16:9, say) store non-square samples; PyAV frames do
+        not carry the ratio, so it comes from the stream, with the
+        display aspect ratio as the fallback source."""
+        if self._sar is not None:
+            return self._sar
+        sar = 1.0
+        stream = self._stream
+        if stream is not None:
+            try:
+                if stream.sample_aspect_ratio:
+                    sar = float(stream.sample_aspect_ratio)
+                elif (stream.display_aspect_ratio and stream.width
+                        and stream.height):
+                    sar = (float(stream.display_aspect_ratio)
+                           * stream.height / stream.width)
+            except Exception:
+                sar = 1.0
+        if sar <= 0:
+            sar = 1.0
+        self._sar = sar
+        return sar
+
+    def _square(self, image: QImage) -> QImage:
+        """Resample an image to square pixels per the stream's
+        sample aspect ratio, so the preview shows the picture at its
+        intended display aspect. Square-pixel sources pass through
+        untouched."""
+        sar = self._display_sar()
+        if abs(sar - 1.0) < 1e-6:
+            return image
+        width = max(1, round(image.width() * sar))
+        return image.scaled(width, image.height(),
+                            Qt.AspectRatioMode.IgnoreAspectRatio,
+                            Qt.TransformationMode.SmoothTransformation)
+
+    def _to_image(self, frame) -> QImage:
         arr = frame.to_ndarray(format="rgb24")
-        return QImage(arr.data, arr.shape[1], arr.shape[0],
-                      arr.strides[0], QImage.Format.Format_RGB888).copy()
+        image = QImage(arr.data, arr.shape[1], arr.shape[0],
+                       arr.strides[0], QImage.Format.Format_RGB888).copy()
+        return self._square(image)
 
     def _fetch_frame(self, index: int):
         """The decoded source frame at `index` (an av.VideoFrame), or
@@ -301,7 +341,7 @@ class PreviewPlayer:
             Qt.AspectRatioMode.IgnoreAspectRatio,
             Qt.TransformationMode.SmoothTransformation)
         self.current_index = index
-        return image
+        return self._square(image)
 
     def get_frame_2x(self, index: int, field: int) -> QImage | None:
         """One field of a frame as a full deinterlaced picture, the
