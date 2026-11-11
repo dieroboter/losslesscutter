@@ -237,6 +237,17 @@ def smart_cut(media_container: MediaContainer, positive_segments: list[tuple[Fra
                 subtitle_out_stream = create_subtitle_output_stream(media_container, output_av_container, sub_track_i)
                 generators.append(SubtitleCutter(media_container, subtitle_out_stream, sub_track_i))
 
+            # LosslessCutter: if any segment of this output file will
+            # be recoded, declare the recode encoder's parameter sets
+            # in the output header before it is written (see
+            # VideoCutter.prepare_recode_extradata).
+            file_segments = [s for s in cut_segments[previously_done_segments:]
+                             if s.start_time < output_path_segment[1][1]]
+            needs_recode = any(s.require_recode for s in file_segments)
+            for g in generators:
+                if isinstance(g, VideoCutter):
+                    g.prepare_recode_extradata(needs_recode)
+
             output_av_container.start_encoding()
             if progress is not None:
                 progress.emit(len(cut_segments))

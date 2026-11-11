@@ -150,6 +150,69 @@ def create_video_output_stream(
     )
 
 
+def _split_h264_annexb(data: bytes) -> list[bytes]:
+    """Split Annex B data into NAL payloads (start codes removed)."""
+    nals: list[bytes] = []
+    start: int | None = None
+    pos = 0
+    while True:
+        i4 = data.find(b"\x00\x00\x00\x01", pos)
+        i3 = data.find(b"\x00\x00\x01", pos)
+        if i4 == -1 and i3 == -1:
+            break
+        if i4 != -1 and (i3 == -1 or i4 <= i3):
+            i, adv = i4, 4
+        else:
+            i, adv = i3, 3
+        if start is not None:
+            nals.append(data[start:i])
+        start = i + adv
+        pos = start
+    if start is not None and start < len(data):
+        nals.append(data[start:])
+    return [n for n in nals if n]
+
+
+def _h264_extradata_param_sets(data: bytes | None) -> tuple[list[bytes], list[bytes]]:
+    """SPS and PPS NAL payloads from H.264 extradata, whether it is
+    avcC (length-prefixed) or Annex B (start codes)."""
+    if not data:
+        return [], []
+    if data[0] == 1 and len(data) >= 7:
+        # avcC: version(1) profile(1) compat(1) level(1)
+        # lengthSizeMinusOne(1) numSPS(1) then length-prefixed sets.
+        try:
+            sps: list[bytes] = []
+            pps: list[bytes] = []
+            pos = 5
+            num_sps = data[pos] & 0x1F
+            pos += 1
+            for _ in range(num_sps):
+                n = int.from_bytes(data[pos:pos + 2], "big")
+                pos += 2
+                sps.append(data[pos:pos + n])
+                pos += n
+            num_pps = data[pos]
+            pos += 1
+            for _ in range(num_pps):
+                n = int.from_bytes(data[pos:pos + 2], "big")
+                pos += 2
+                pps.append(data[pos:pos + n])
+                pos += n
+            return sps, pps
+        except Exception:
+            return [], []
+    sps = []
+    pps = []
+    for nal in _split_h264_annexb(data):
+        t = nal[0] & 0x1F
+        if t == 7:
+            sps.append(nal)
+        elif t == 8:
+            pps.append(nal)
+    return sps, pps
+
+
 def _normalize_output_codec_tag(
     out_stream: VideoStream,
     output_av_container: OutputContainer,
@@ -541,6 +604,75 @@ class VideoCutter:
             enc_codec.flags |= 1 << 18  # AV_CODEC_FLAG_INTERLACED_DCT
         self.enc_last_pts = -1
         self.enc_codec = enc_codec
+
+    def prepare_recode_extradata(self, needs_recode: bool) -> None:
+        """Declare the recode encoder's parameter sets in the output
+        stream's extradata before the container header is written.
+
+        Lossless H.264 recodes run at CRF 0, and x264 only does
+        lossless in High 4:4:4 Predictive profile, so a recoded
+        segment carries an SPS for that profile (sps-id=3) while the
+        copied material - and the output stream's extradata, copied
+        from the source - uses the source's profile (often Main).
+        The file then switches profile mid-stream at each recode.
+        Software decoders cope; hardware decoders (MPC-HC/LAV with
+        DXVA) commonly cannot re-initialize mid-stream to a profile
+        that was never declared in the header, and the recoded tail
+        comes out corrupted - the pixels are fine, the player is
+        not. Probing the encoder here (one throwaway black frame,
+        packets discarded, encoder then dropped so the real one is
+        created fresh at the first recode segment) reveals its
+        SPS/PPS; merging them into the stream's extradata - recode
+        sets first, so the header's profile/level fields describe
+        the highest profile in the file - declares both profiles up
+        front. The video data itself is unchanged.
+
+        Never fails the export: any problem leaves the extradata
+        exactly as it was.
+        """
+        if not needs_recode or self.codec_name != "h264":
+            return
+        if self.enc_codec is not None:
+            # Full-recode mode: the output stream IS the encoder, so
+            # its extradata already is the recode's.
+            return
+        try:
+            self.init_encoder()
+            self._ensure_enc_codec()
+            enc = self.enc_codec
+            assert enc is not None
+            frame = VideoFrame(enc.width, enc.height, enc.pix_fmt)
+            frame.pts = 0
+            packets = list(enc.encode(frame))
+            packets.extend(enc.encode())
+            sps: list[bytes] = []
+            pps: list[bytes] = []
+            for packet in packets:
+                for nal in _split_h264_annexb(bytes(packet)):
+                    t = nal[0] & 0x1F
+                    if t == 7 and nal not in sps:
+                        sps.append(nal)
+                    elif t == 8 and nal not in pps:
+                        pps.append(nal)
+                if sps and pps:
+                    break
+            if not sps:
+                return
+            src_sps, src_pps = _h264_extradata_param_sets(
+                self.out_stream.codec_context.extradata)
+            merged_sps = sps + [s for s in src_sps if s not in sps]
+            merged_pps = pps + [p for p in src_pps if p not in pps]
+            blob = b"".join(
+                b"\x00\x00\x00\x01" + nal
+                for nal in merged_sps + merged_pps)
+            self.out_stream.codec_context.extradata = blob
+        except Exception:
+            # The compatibility probe must never break an export:
+            # leave the encoder uninitialized so the normal path
+            # re-runs init_encoder at the first recode segment.
+            self.encoder_inited = False
+        finally:
+            self.enc_codec = None
 
     def segment(self, cut_segment: CutSegment) -> list[Packet]:
         if cut_segment.require_recode:
