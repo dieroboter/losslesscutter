@@ -33,6 +33,9 @@ OUT_CHANNELS = 2
 _BYTES_PER_SAMPLE = 2  # s16
 _PUMP_MS = 20
 _BUFFER_BYTES = 1 << 15
+# End-of-track slack for the processed-time check in _track_finished:
+# the sink may report up to this far behind the bytes handed to it.
+_FINISH_EPSILON_US = 100_000
 
 
 class PcmDecoder:
@@ -148,6 +151,8 @@ class AudioPlayer(QObject):
         self._base = 0.0
         self._eof = False
         self._wrote_any = False
+        self._written_bytes = 0
+        self._bytes_per_sec = 0
         self._volume = 1.0
         self._muted = False
         self.active = False
@@ -195,6 +200,9 @@ class AudioPlayer(QObject):
         self._base = start_time
         self._eof = False
         self._wrote_any = False
+        self._written_bytes = 0
+        self._bytes_per_sec = (
+            fmt.sampleRate() * fmt.channelCount() * _BYTES_PER_SAMPLE)
         self._pending = b""
         self.active = True
         self._timer = QTimer(self)
@@ -225,6 +233,33 @@ class AudioPlayer(QObject):
             return self._base
         return self._base + self._sink.processedUSecs() / 1_000_000.0
 
+    def _track_finished(self) -> bool:
+        """True when the audio track has played out: every decoded
+        chunk written to the sink and the sink has played it.
+
+        The sink reaching IdleState is the direct signal, but it is
+        not the only one: some backends never report Idle when the
+        buffer drains, which left preview playback stuck on Pause
+        at the end of a file (the window never got `finished`, so
+        the first Space only stopped the already-ended playback
+        and a second one was needed to restart). Two more signals
+        cover that case, both gated on the decoder being exhausted
+        with nothing left pending, so neither can fire mid-track:
+        the sink has processed essentially all the bytes written
+        to it, or its buffer is entirely free again.
+        """
+        if not (self._eof and not self._pending and self._wrote_any):
+            return False
+        if self._sink is None:
+            return False
+        if self._sink.state() == QAudio.State.IdleState:
+            return True
+        if self._bytes_per_sec > 0:
+            total_us = self._written_bytes * 1_000_000 // self._bytes_per_sec
+            if self._sink.processedUSecs() >= total_us - _FINISH_EPSILON_US:
+                return True
+        return self._sink.bytesFree() >= self._sink.bufferSize()
+
     def _pump(self) -> None:
         if self._sink is None or self._io is None:
             return
@@ -245,14 +280,14 @@ class AudioPlayer(QObject):
                 if n <= 0:
                     break
                 self._wrote_any = True
+                self._written_bytes += n
                 self._pending = self._pending[n:]
         except Exception as exc:
             self._teardown()
             self.failed.emit(f"Audio preview stopped: {exc}")
             return
         self.position_changed.emit(self._position())
-        if (self._eof and not self._pending and self._wrote_any
-                and self._sink.state() == QAudio.State.IdleState):
+        if self._track_finished():
             self._teardown()
             self.finished.emit()
         elif (self._sink.error() != QAudio.Error.NoError
