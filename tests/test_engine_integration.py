@@ -8,8 +8,10 @@ For each case, at the app's only quality (highest possible / LOSSLESS):
 - the audio track survives (passthrough)
 - a frame deep inside a copied GOP is pixel-identical to the source frame
 - a frame inside the recoded head is pixel-identical for codecs with a
-  lossless mode (H.264/HEVC/VP9/AV1), or near-identical for MPEG-2/MPEG-4
-  (no lossless mode exists; finest quantizer q=1)
+  lossless mode (HEVC/VP9/AV1), or near-identical for H.264 (CRF 1, the
+  finest lossy step, in the source profile - x264 lossless would switch
+  profiles mid-file), MPEG-2/MPEG-4 (no lossless mode exists; finest
+  quantizer q=1), and VP8 (CRF 4)
 - export stats report recoded frames at both the beginning and the end
 """
 import sys
@@ -43,7 +45,7 @@ CASES = [
     ("av1.mp4", 24, 24, [(26, 54), (86, 125)]),
     ("mpeg4.avi", 24, 24, [(26, 54), (86, 125)]),
 ]
-LOSSLESS_CODECS = ("h264", "hevc", "vp9", "av1")
+LOSSLESS_CODECS = ("hevc", "vp9", "av1")
 
 
 def decode_frames(path):
@@ -58,10 +60,12 @@ def decode_frames(path):
 def decode_frame_fresh(path, index, gop_start_index, fps):
     """Decode one frame in a fresh session seeked to its GOP's keyframe.
 
-    Needed for copied-GOP checks: decoding straight through an SPS switch
-    (lossless H.264 recode -> original SPS) makes ffmpeg keep the first
-    SPS's chroma handling for a while, which perturbs RGB/YUV comparisons
-    even though the copied slice data is bit-identical.
+    Isolates the comparison from decoder state carried across the
+    splice. (H.264 recodes used to switch profiles mid-file at CRF 0,
+    which made ffmpeg keep the first SPS's chroma handling for a while
+    and perturbed comparisons even though the copied slice data was
+    bit-identical; recodes now stay in the source profile, but the
+    fresh-decode path is kept as the robust check.)
     """
     with av.open(str(path)) as c:
         vs = next(s for s in c.streams if s.type == "video")

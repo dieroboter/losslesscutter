@@ -396,11 +396,20 @@ class VideoCutter:
                     VideoExportQuality.SOURCE_MATCHED: '2',
                 }
                 self.encoding_options['q'] = q_map.get(self.video_settings.quality, '2')
-        if self.codec_name == 'h264' and self.video_settings.quality == VideoExportQuality.LOSSLESS:
-            # x264 refuses lossless (CRF 0) unless the profile is High 4:4:4
-            # Predictive: "high profile doesn't support lossless". The recoded
-            # segment carries its own SPS (sps-id=3), so this is safe.
-            profile = 'high444'
+        if self.codec_name == 'h264' and self.video_settings.quality == VideoExportQuality.LOSSLESS and profile != 'high444':
+            # x264 lossless (CRF 0) requires High 4:4:4 Predictive, which
+            # switches the stream's profile mid-file at each recode: the
+            # recoded segment carries a High 4:4:4 SPS while the copied
+            # material uses the source's profile. Players that cannot
+            # re-initialize mid-stream (VLC, MPC-HC/LAV) corrupt the
+            # recoded tail, even though the pixels are exact and the
+            # header declares both profiles. So H.264 recodes at the
+            # LOSSLESS preset use CRF 1 instead: the finest lossy step,
+            # visually indistinguishable from lossless, in the source's
+            # own profile (kept as computed above), so the stream never
+            # switches profile. A source that is already High 4:4:4
+            # keeps true CRF 0 lossless, since there is no switch.
+            self.encoding_options['crf'] = '1'
         if profile is not None:
             self.encoding_options['profile'] = profile
 
@@ -604,75 +613,6 @@ class VideoCutter:
             enc_codec.flags |= 1 << 18  # AV_CODEC_FLAG_INTERLACED_DCT
         self.enc_last_pts = -1
         self.enc_codec = enc_codec
-
-    def prepare_recode_extradata(self, needs_recode: bool) -> None:
-        """Declare the recode encoder's parameter sets in the output
-        stream's extradata before the container header is written.
-
-        Lossless H.264 recodes run at CRF 0, and x264 only does
-        lossless in High 4:4:4 Predictive profile, so a recoded
-        segment carries an SPS for that profile (sps-id=3) while the
-        copied material - and the output stream's extradata, copied
-        from the source - uses the source's profile (often Main).
-        The file then switches profile mid-stream at each recode.
-        Software decoders cope; hardware decoders (MPC-HC/LAV with
-        DXVA) commonly cannot re-initialize mid-stream to a profile
-        that was never declared in the header, and the recoded tail
-        comes out corrupted - the pixels are fine, the player is
-        not. Probing the encoder here (one throwaway black frame,
-        packets discarded, encoder then dropped so the real one is
-        created fresh at the first recode segment) reveals its
-        SPS/PPS; merging them into the stream's extradata - recode
-        sets first, so the header's profile/level fields describe
-        the highest profile in the file - declares both profiles up
-        front. The video data itself is unchanged.
-
-        Never fails the export: any problem leaves the extradata
-        exactly as it was.
-        """
-        if not needs_recode or self.codec_name != "h264":
-            return
-        if self.enc_codec is not None:
-            # Full-recode mode: the output stream IS the encoder, so
-            # its extradata already is the recode's.
-            return
-        try:
-            self.init_encoder()
-            self._ensure_enc_codec()
-            enc = self.enc_codec
-            assert enc is not None
-            frame = VideoFrame(enc.width, enc.height, enc.pix_fmt)
-            frame.pts = 0
-            packets = list(enc.encode(frame))
-            packets.extend(enc.encode())
-            sps: list[bytes] = []
-            pps: list[bytes] = []
-            for packet in packets:
-                for nal in _split_h264_annexb(bytes(packet)):
-                    t = nal[0] & 0x1F
-                    if t == 7 and nal not in sps:
-                        sps.append(nal)
-                    elif t == 8 and nal not in pps:
-                        pps.append(nal)
-                if sps and pps:
-                    break
-            if not sps:
-                return
-            src_sps, src_pps = _h264_extradata_param_sets(
-                self.out_stream.codec_context.extradata)
-            merged_sps = sps + [s for s in src_sps if s not in sps]
-            merged_pps = pps + [p for p in src_pps if p not in pps]
-            blob = b"".join(
-                b"\x00\x00\x00\x01" + nal
-                for nal in merged_sps + merged_pps)
-            self.out_stream.codec_context.extradata = blob
-        except Exception:
-            # The compatibility probe must never break an export:
-            # leave the encoder uninitialized so the normal path
-            # re-runs init_encoder at the first recode segment.
-            self.encoder_inited = False
-        finally:
-            self.enc_codec = None
 
     def segment(self, cut_segment: CutSegment) -> list[Packet]:
         if cut_segment.require_recode:

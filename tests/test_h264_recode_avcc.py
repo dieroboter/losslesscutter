@@ -1,31 +1,28 @@
-"""Regression test: a lossless H.264 cut must declare the recode
-encoder's parameter sets in the output header (avcC).
+"""Regression test: a lossless-quality H.264 cut must not switch
+profiles mid-file.
 
-Lossless H.264 recodes run at CRF 0, and x264 only does lossless
-in High 4:4:4 Predictive profile, so a recoded segment carries an
-SPS for that profile (sps-id=3) while the copied material - and
-the output stream's extradata, copied from the source - uses the
-source's profile (often Main). The file then switches profile
-mid-stream at each recode. Software decoders cope; hardware
-decoders (MPC-HC/LAV with DXVA) commonly cannot re-initialize
-mid-stream to a profile that was never declared in the header,
-and the recoded tail comes out corrupted even though every pixel
-is bit-identical to the source (proven on a real 720p25 Main
-profile file: framemd5 identical, audio identical, timestamps
-clean - the only anomaly was the in-band High 4:4:4 SPS at each
-recode, with the avcC listing only the Main SPS).
+x264 lossless (CRF 0) requires High 4:4:4 Predictive profile, so
+a recoded segment carried a High 4:4:4 SPS (profile 244, sps-id=3)
+while the copied material - and the output header - used the
+source's profile (often Main 77). The file then switched profile
+mid-stream at each recode. An earlier fix (b070fc3) declared both
+profiles in the header (avcC), but the corruption in VLC and
+MPC-HC/LAV persisted: the head recode played clean, the first
+corrupt frame was the tail IDR itself (output frame 5339), so the
+switch up to High 4:4:4 mid-stream is what those players choke on,
+header or not. ffmpeg (4.4 and 8.1.2 alike) decodes the switched
+file pixel-perfect, so only on-device playback shows it.
 
-The fix probes the recode encoder before the container header is
-written (one throwaway frame, encoder then discarded) and merges
-its SPS/PPS into the output stream's extradata, recode sets
-first, so the header declares both profiles up front.
+The fix: H.264 recodes at the LOSSLESS preset use CRF 1 instead
+of CRF 0 - the finest lossy step, visually indistinguishable from
+lossless - in the source's own profile, so the stream never
+switches profile. A source already in High 4:4:4 keeps true CRF 0.
 
 Assertions on a Main-profile fixture cut mid-GOP at both ends:
-  1. the output avcC lists both SPS (Main 77 and High 4:4:4 244)
-  2. the in-band SPS of the recoded segments is byte-identical
-     to the avcC's High 4:4:4 SPS (the probe encoder's SPS is the
-     real recode's SPS)
-  3. the recoded frames are still lossless against the source
+  1. the output avcC lists a single SPS, Main 77 (no 244 anywhere)
+  2. the in-band SPS of the recoded segments is Main 77 too
+  3. the recoded frames are near-lossless against the source
+     (worst PSNR >= 45 dB; measured 58 dB on this fixture)
 
 Run: .venv/bin/python tests/test_h264_recode_avcc.py
 """
@@ -131,15 +128,13 @@ def main() -> None:
         vs = next(s for s in c.streams if s.type == "video")
         sps, _pps = _h264_extradata_param_sets(vs.codec_context.extradata)
     profiles = [s[1] for s in sps]
-    assert 77 in profiles and 244 in profiles, (
-        f"avcC must declare both the source Main SPS and the recode "
-        f"High 4:4:4 SPS, got profiles {profiles}")
+    assert profiles == [77], (
+        f"avcC must list only the source Main SPS, got profiles "
+        f"{profiles} - the recode is switching profiles mid-file")
 
-    hi444 = next(s for s in sps if s[1] == 244)
-    assert hi444 in in_band_sps(str(out_path)), (
-        "the avcC's High 4:4:4 SPS is not the one the recoded "
-        "segments actually carry - the probe encoder disagrees "
-        "with the real recode")
+    in_profiles = [s[1] for s in in_band_sps(str(out_path))]
+    assert 244 not in in_profiles, (
+        f"recoded segments carry a High 4:4:4 SPS in-band: {in_profiles}")
 
     recoded = int(stats["frames_recoded_start"]) + int(stats["frames_recoded_end"])
     src = frames(str(FIX), KEEP_START, KEEP_END - KEEP_START)
@@ -148,9 +143,9 @@ def main() -> None:
     for k in range(KEEP_END - KEEP_START):
         p = psnr(src[KEEP_START + k], got[k])
         worst = min(worst, p)
-        assert p >= 42.0, f"frame {k} of the cut at {p:.1f} dB - not lossless"
-    print(f"PASS: avcC declares profiles {sorted(profiles)}, "
-          f"{recoded} recoded frames lossless (worst {worst:.1f} dB)")
+        assert p >= 45.0, f"frame {k} of the cut at {p:.1f} dB - not near-lossless"
+    print(f"PASS: avcC declares profile {profiles}, no 244 in-band, "
+          f"{recoded} recoded frames near-lossless (worst {worst:.1f} dB)")
     mc.close()
 
 

@@ -37,9 +37,15 @@ A few codec/container pairs are impossible (VP8 video, for example, cannot
 be stored in MP4); the app checks before exporting and says so instead of
 failing mid-export.
 
-"Highest quality" per codec: H.264/HEVC/VP9/AV1 re-encode losslessly
-(CRF 0 / equivalent). MPEG-2, MPEG-4 ASP, and VP8 have no lossless mode:
-MPEG-2 and MPEG-4 ASP use their finest quantizer (q=1), and VP8 uses CRF 4,
+"Highest quality" per codec: HEVC, VP9, and AV1 re-encode losslessly
+(CRF 0 / equivalent). H.264 re-encodes at CRF 1, the finest lossy
+setting, in the source's own profile: x264 lossless (CRF 0) requires
+High 4:4:4 profile, which switches the stream's profile mid-file at
+each recode and breaks playback in VLC and MPC-HC, so H.264 cut points
+are near-lossless instead of bit-identical. (A source already in
+High 4:4:4 keeps true CRF 0 lossless, since there is no switch.)
+MPEG-2, MPEG-4 ASP, and VP8 have no lossless mode: MPEG-2 and
+MPEG-4 ASP use their finest quantizer (q=1), and VP8 uses CRF 4,
 the finest setting its encoder accepts.
 
 ## Usage

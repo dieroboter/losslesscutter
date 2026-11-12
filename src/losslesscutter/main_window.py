@@ -1023,7 +1023,7 @@ class MainWindow(QMainWindow):
                 v * scale for v in (kept, start, end, middle, whole))
             if whole and not (start or end or middle):
                 text = (f"Plan: {cut_text} Keeping {kept} frames. "
-                        f"All {whole} kept frames will be re-encoded (at lossless quality): "
+                        f"All {whole} kept frames will be re-encoded (at the highest quality): "
                         f"the kept range sits inside a single GOP of the source, "
                         f"so there is nothing that can be copied.")
             else:
@@ -1136,7 +1136,7 @@ class MainWindow(QMainWindow):
         if whole and recoded >= kept and kept > 0:
             self.status_label.setText(
                 f"Done: {out_path}   {cut_text}All {kept} kept frames were re-encoded "
-                f"(at lossless quality): the kept range sits inside a single GOP "
+                f"(at the highest quality): the kept range sits inside a single GOP "
                 f"of the source, so there was nothing that could be copied."
             )
         else:
