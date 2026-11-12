@@ -773,6 +773,11 @@ class MainWindow(QMainWindow):
         if self._playing:
             self._stop_play()
         else:
+            if self.current_frame >= self.info.frame_count - 1:
+                # At the end: restart from the beginning instead of
+                # starting playback that stops at once (the position
+                # is already past the last frame's duration).
+                self.show_frame(0)
             self._playing = True
             self._display_key = None
             self.play_btn.setText("Pause")
