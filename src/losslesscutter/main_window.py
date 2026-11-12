@@ -399,7 +399,7 @@ class MainWindow(QMainWindow):
             # can start. Say so, with a busy bar and a wait cursor,
             # instead of sitting silent with the old status showing.
             self.status_label.setText(
-                "First file: loading the video libraries (one-time)...")
+                "First file: loading the video libraries...")
             self.progress.setRange(0, 0)
             QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
             self._wait_cursor = True
