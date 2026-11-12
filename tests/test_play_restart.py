@@ -71,6 +71,28 @@ def main():
     win.toggle_play()
     assert not win._playing, "second Space did not pause"
 
+    # A natural end leaves the playhead on the true last frame.
+    # Playback stops on time, not on the frame, so without the
+    # seek the playhead can sit a frame or two short and Space
+    # would play those frames and stop again instead of restarting.
+    # Drive the timer path past the end directly (the fixture is
+    # 6 s; playing it out in real time would take as long).
+    win.show_frame(last - 2)
+    win._playing = True
+    win._audio_mode = False
+    win._play_base_mono = time.monotonic() - 10.0
+    win._play_base_media = 0.0
+    win._play_tick()
+    assert not win._playing, "timer path did not stop past the end"
+    assert win.current_frame == last, (
+        f"natural end left the playhead on {win.current_frame}, "
+        f"not the last frame {last}")
+    win.toggle_play()
+    assert win.current_frame == 0, (
+        f"Space after a natural end left the playhead on {win.current_frame}")
+    assert win._playing, "playback did not restart after a natural end"
+    win._stop_play()
+
     win.close()
     print("PLAY RESTART TEST PASSED")
     return 0

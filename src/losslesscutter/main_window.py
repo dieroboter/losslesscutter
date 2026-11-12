@@ -813,6 +813,22 @@ class MainWindow(QMainWindow):
             self._display_key = None
             self.show_frame(self.current_frame)
 
+    def _show_last_frame_if_near_end(self) -> None:
+        """At a natural end of playback, put the playhead on the true
+        last frame. Playback stops on time (position >= duration),
+        not on the frame, so the last tick can leave the playhead a
+        frame or two short; the preview then ends on the wrong frame
+        and Space resumes from there, plays a frame or two, and stops
+        again instead of restarting. Only when already within 0.15 s
+        of the end, so an audio track ending early does not jump the
+        preview ahead."""
+        if self.info is None or self.mc is None:
+            return
+        remaining = float(self.info.duration) - float(
+            frame_time(self.mc, self.current_frame))
+        if remaining <= 0.15:
+            self.show_frame(self.info.frame_count - 1)
+
     def _field_at(self, index: int, seconds: float) -> int:
         """Which field of frame `index` is on screen at `seconds`:
         the first field for the first half of the frame's interval,
@@ -830,6 +846,7 @@ class MainWindow(QMainWindow):
             return
         if seconds >= float(self.info.duration):
             self._stop_play()
+            self._show_last_frame_if_near_end()
             return
         idx = bisect_right(self._frame_times, seconds) - 1
         idx = max(0, min(idx, self.info.frame_count - 1))
@@ -844,6 +861,7 @@ class MainWindow(QMainWindow):
     def _on_audio_finished(self) -> None:
         if self._playing:
             self._stop_play()
+            self._show_last_frame_if_near_end()
 
     def _on_audio_failed(self, message: str) -> None:
         if not self._playing or not self._audio_mode:
@@ -895,6 +913,7 @@ class MainWindow(QMainWindow):
             time.monotonic() - self._play_base_mono)
         if target >= float(self.info.duration):
             self._stop_play()
+            self._show_last_frame_if_near_end()
             return
         idx = bisect_right(self._frame_times, target) - 1
         idx = max(0, min(idx, self.info.frame_count - 1))
