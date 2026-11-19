@@ -136,6 +136,14 @@ def create_video_output_stream(
             out_stream.disposition = cast(Disposition, in_stream.disposition.value)
             out_stream.time_base = in_stream.time_base
             codec_name = original_codec_name
+            # Some files carry a truncated H.264 avcC (header only, no
+            # SPS/PPS) while the parameter sets only exist in-band in
+            # the keyframes. Decoders tolerate that, but the muxer
+            # rejects the output header, failing the export with
+            # "Invalid data found when processing input" against the
+            # output path. Repair the extradata from the first
+            # keyframe so the export can proceed.
+            _repair_h264_extradata(out_stream, media_container)
 
         is_full_recode = False
 
@@ -211,6 +219,95 @@ def _h264_extradata_param_sets(data: bytes | None) -> tuple[list[bytes], list[by
         elif t == 8:
             pps.append(nal)
     return sps, pps
+
+
+def _split_h264_avcc(data: bytes) -> list[bytes]:
+    """Split AVCC (length-prefixed) packet data into NAL payloads."""
+    nals: list[bytes] = []
+    pos = 0
+    while pos + 4 <= len(data):
+        n = int.from_bytes(data[pos:pos + 4], "big")
+        if n <= 0 or pos + 4 + n > len(data):
+            break
+        nals.append(data[pos + 4:pos + 4 + n])
+        pos += 4 + n
+    return nals
+
+
+def _build_h264_avcc(sps_list: list[bytes], pps_list: list[bytes]) -> bytes:
+    """Build avcC extradata from SPS/PPS NAL payloads (4-byte NAL lengths)."""
+    sps0 = sps_list[0]
+    out = bytes([
+        1,              # configurationVersion
+        sps0[1],        # AVCProfileIndication
+        sps0[2],        # profile_compatibility
+        sps0[3],        # AVCLevelIndication
+        0xFF,           # lengthSizeMinusOne (4-byte NAL lengths)
+        0xE0 | len(sps_list),
+    ])
+    for s in sps_list:
+        out += len(s).to_bytes(2, "big") + s
+    out += bytes([len(pps_list)])
+    for p in pps_list:
+        out += len(p).to_bytes(2, "big") + p
+    return out
+
+
+def _first_keyframe_param_sets(path: str) -> tuple[list[bytes], list[bytes]]:
+    """SPS/PPS from the first keyframe packet of an H.264 file.
+
+    Some files carry a truncated avcC (header only, no parameter sets)
+    while the sets only exist in-band in the keyframes; decoders
+    tolerate that, but a muxer writing the output header does not.
+    Returns ([], []) when no keyframe with parameter sets is found."""
+    try:
+        with av.open(path, "r", metadata_errors="ignore") as c:
+            vs = next((s for s in c.streams if s.type == "video"), None)
+            if vs is None:
+                return [], []
+            for packet in c.demux(vs):
+                if not packet.is_keyframe:
+                    continue
+                data = bytes(packet)
+                nals = _split_h264_avcc(data)
+                if not nals:
+                    nals = _split_h264_annexb(data)
+                sps = [n for n in nals if n and (n[0] & 0x1F) == 7]
+                pps = [n for n in nals if n and (n[0] & 0x1F) == 8]
+                if sps and pps:
+                    return sps, pps
+                return [], []
+    except Exception:
+        return [], []
+    return [], []
+
+
+def _repair_h264_extradata(out_stream, media_container,
+                           annexb: bool = False) -> bool:
+    """Repair a broken H.264 output extradata from the source's first
+    keyframe, so the output header can be written. Returns True when
+    the extradata was replaced. Leaves it untouched when the output
+    extradata already carries parameter sets or none can be found.
+    annexb=True writes the parameter sets in Annex B form, matching
+    what the h264_mp4toannexb remux filter leaves behind; the default
+    avcC form matches a plain template copy before any filter runs."""
+    in_ctx = media_container.video_stream.codec_context
+    if in_ctx.name != "h264":
+        return False
+    out_ctx = out_stream.codec_context
+    existing = bytes(out_ctx.extradata) if out_ctx.extradata else None
+    sps, _ = _h264_extradata_param_sets(existing)
+    if sps:
+        return False
+    sps, pps = _first_keyframe_param_sets(media_container.path)
+    if not sps or not pps:
+        return False
+    if annexb:
+        out_ctx.extradata = b"".join(
+            b"\x00\x00\x00\x01" + n for n in sps + pps)
+    else:
+        out_ctx.extradata = _build_h264_avcc(sps, pps)
+    return True
 
 
 def _normalize_output_codec_tag(
@@ -306,6 +403,14 @@ class VideoCutter:
             # MPEG-4 Visual family: optional filters for robustness (ASF/AVI tend to need this)
             elif self.in_stream.codec_context.name in {'mpeg4', 'msmpeg4v3', 'msmpeg4v2', 'msmpeg4v1'}:
                 self.remux_bitstream_filter = av.bitstream.BitStreamFilterContext('dump_extra', self.in_stream, self.out_stream)
+            # The remux filter derives the output extradata from the
+            # input's. When the input avcC is truncated (header only,
+            # no SPS/PPS), the filter leaves the output extradata
+            # empty and the muxer then rejects the output header, so
+            # repair it here, after the filter setup, in the Annex B
+            # form the filter leaves behind on a healthy file.
+            _repair_h264_extradata(self.out_stream, media_container,
+                                   annexb=True)
 
         # Normalize codec tags for container compatibility (must be done after bitstream filter setup)
         _normalize_output_codec_tag(self.out_stream, output_av_container, self.in_stream)
